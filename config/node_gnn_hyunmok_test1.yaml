@@ -1,0 +1,43 @@
+---
+dataset:
+  data_path: ..\data_temp_server\V=16\git_code\data_temp
+  loader_name: RandCRFData
+  name: rand_crf
+  num_node: 16
+  split: test
+exp_dir: ..\data_temp_server\V=16\git_code\GNN_exp\0.9_0.9\degree#3\prop_10\
+exp_name: ..
+gpus:
+- 0
+model:
+  aggregate_type: sum
+  hidden_dim: 32
+  loss: KL-pq
+  name: NodeGNN
+  num_prop: 10
+run_id: '54789'
+runner: NeuralInferenceRunner
+save_dir: ..\GNN_exp
+seed: 1234
+test:
+  batch_size: 1
+  num_workers: 0
+  test_model: ../data_temp_server/V=16/git_code/GNN_exp/0.9_0.9/degree#3/prop_10/NodeGNN_001_rand_crf_2020-Sep-23-01-51-55_test_16_1254/model_snapshot_best.pth
+train:
+  batch_size: 10
+  display_iter: 13000
+  is_resume: false
+  lr: 0.001
+  lr_decay: 0.1
+  lr_decay_steps:
+  - 10000
+  max_epoch: 1000
+  momentum: 0.9
+  num_workers: 0
+  optimizer: Adam
+  resume_model: None
+  shuffle: true
+  snapshot_epoch: 20000
+  valid_epoch: 1
+  wd: 0.0
+use_gpu: true

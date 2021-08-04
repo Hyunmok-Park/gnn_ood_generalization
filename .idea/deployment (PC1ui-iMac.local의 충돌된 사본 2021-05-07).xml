@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PublishConfigData" autoUpload="Always" serverName="nipa">
+    <serverData>
+      <paths name="nipa">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/TorchGNN_project" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/aws_gen" local="$PROJECT_DIR$/../aws/aws_gen" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="nipa_home">
+        <serverdata>
+          <mappings>
+            <mapping deploy="TorchGNN_project" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="aws_gen" local="$PROJECT_DIR$/../aws/aws_gen" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="nvidia">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/nvidia/Torch_geo_hyunmok/TorchGNN_project" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/home/nvidia/Torch_geo_hyunmok/aws_gen" local="$PROJECT_DIR$/../aws/aws_gen" />
+          </mappings>
+        </serverdata>
+      </paths>
+    </serverData>
+    <option name="myAutoUpload" value="ALWAYS" />
+  </component>
+</project>

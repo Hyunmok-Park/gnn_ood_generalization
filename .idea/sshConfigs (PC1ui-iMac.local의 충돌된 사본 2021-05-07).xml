@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="SshConfigs">
+    <configs>
+      <sshConfig authType="PASSWORD" host="175.106.90.225" id="c4b8037d-90f4-4864-8a8a-101e1fe27410" port="16022" nameFormat="DESCRIPTIVE" username="ubuntu" />
+      <sshConfig authType="PASSWORD" host="192.168.1.10" id="05e60cc2-f5ad-4e19-b5c0-085481c60bb0" port="22" customName="nvidia" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="175.106.90.225" id="dc4ee96d-0710-4095-b096-e679ae3951cd" port="16022" customName="nipa" nameFormat="CUSTOM" username="ubuntu" />
+      <sshConfig authType="PASSWORD" host="192.168.1.10" id="1ba0a208-771d-4eff-be83-22d4ee5b44ab" port="22" customName="nvidia" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="192.168.1.10" id="14e9c327-3eba-4b65-8c36-1b946088fcd3" port="22" customName="nvidia" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="175.106.90.225" id="8893d17e-c8a0-4be6-aa58-e66ab0c1c1c2" port="16022" customName="nipa" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="192.168.1.10" id="aed5dd61-ddfd-4852-8f51-1e565fcb511e" port="22" customName="nvidia" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="175.106.90.225" id="dbea7246-de34-4dc2-bbde-197ce1680c04" port="16022" customName="nipa" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="175.106.90.225" id="27576fc1-9d07-4105-af2a-f25a88c27b7e" port="16022" customName="nipa_home" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="192.168.1.10" id="e31ae6c2-1d03-40cd-af1a-1ddd2a735761" port="22" customName="nvidia" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="175.106.90.225" id="b7001295-9cd3-4aa2-9faf-b360f6e287fc" port="16022" customName="nipa_home" nameFormat="CUSTOM" username="ubuntu" />
+      <sshConfig authType="PASSWORD" host="192.168.1.10" id="f7e1b251-83f7-445c-b3de-f8ebd5747cd1" port="22" customName="nvidia" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="175.106.90.225" id="47321a75-ffe8-45cc-95f9-76e8ec63b1bd" port="16022" customName="nipa" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="192.168.1.10" id="a67d4c89-108e-4719-8dc4-66b2226ebe46" port="22" customName="nvidia" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="175.106.90.225" id="03a8dc8b-de77-4798-a66d-1bc24a38bf56" port="16022" customName="nipa" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="192.168.1.10" id="fb201a04-8816-4def-a2c9-65cf102ff605" port="22" customName="nvidia" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="175.106.90.225" id="25a42cd3-4339-4658-a68b-4bc77e2f8d5f" port="16022" customName="nipa" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="192.168.1.10" id="e20e12d7-1110-49ab-a720-7821ab47e0e0" port="22" customName="nvidia" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="175.106.90.225" id="c2a27667-8ba5-4ccf-8f30-a201857223b2" port="16022" customName="nipa" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="192.168.1.10" id="1bee12cd-d1a3-4418-9da9-8ef6b30c2aa1" port="22" customName="nvidia" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="175.106.90.225" id="f6aaf630-a99b-4833-bedc-2d5d20867c3c" port="16022" customName="nipa" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="192.168.1.10" id="768070e6-1632-441f-a731-56dffd388b81" port="22" customName="nvidia" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="192.168.1.10" id="a71b6727-aac7-4e27-860d-6886eff26fde" port="22" customName="nvidia" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="175.106.90.225" id="b0ac7069-946c-471a-b6a7-855d615bcb69" port="16022" customName="nipa" nameFormat="CUSTOM" />
+      <sshConfig authType="PASSWORD" host="175.106.90.225" id="3eeff1f7-e7ba-4ab3-a5fc-e556bfbedcd1" port="16022" customName="nipa_home" nameFormat="CUSTOM" />
+    </configs>
+  </component>
+</project>

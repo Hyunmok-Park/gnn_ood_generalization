@@ -1,0 +1,41 @@
+---
+exp_name: msg_gnn
+#exp_dir: /mnt/scratch07/kijung/data_hmc/exp/msg_gnn
+exp_dir: ../GNN_exp/msg_gnn
+runner: NeuralInferenceRunner
+use_gpu: true
+gpus: [0]
+seed: 1234
+dataset:
+  name: rand_crf
+  loader_name: RandCRFData  
+#  data_path: /mnt/scratch07/kijung/data_hmc/
+  data_path: ../data_christmas/
+#  data_path: ../data_9c/
+  split: train
+model:
+  name: MsgGNN
+  hidden_dim: 64
+  num_prop: 10
+  aggregate_type: sum # sum/avg/att
+  loss: KL-pq # KL-pq/KL-qp/MSE
+train:
+  optimizer: Adam
+  lr_decay: 0.1
+  lr_decay_steps: [10000]
+  num_workers: 0
+  max_epoch: 1
+  batch_size: 10
+  display_iter: 1300
+  snapshot_epoch: 2000
+  valid_epoch: 1
+  lr: 1.0e-3 #
+  wd: 0.0e-4 #
+  momentum: 0.9
+  shuffle: true
+  is_resume: false
+  resume_model: None
+test:  
+  batch_size: 1
+  num_workers: 0
+  test_model: exp/msg_gnn/model_snapshot_best.pth

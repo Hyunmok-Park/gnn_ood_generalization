@@ -1,0 +1,51 @@
+---
+dataset:
+  data_path: /home/ubuntu/TorchGNN_project/data_temp/exp2_train_100_0.3/group_1
+  loader_name: Torchloader
+  name : TorchGeoLoader
+  num_node: 100
+  split: train
+exp_dir: GNN_exp/trash
+exp_name: TorchGNN
+gpus:
+- 0
+model:
+  aggregate_type : att
+  degree_emb: false
+  drop_prob: 0
+  hidden_dim: 64
+  loss: KL-pq
+  name: TorchGNN
+  num_prop: 10
+  jumping : false
+  skip_connection : true
+  interpol : false
+  master_node : false
+  masking : false
+  masking_number : []
+  SSL : false
+  train_pretext : false
+runner: NeuralInferenceRunner
+seed: 1234
+test:
+  batch_size: 1
+  num_workers: 0
+  test_model: ../GNN_exp/
+train:
+  batch_size: 10
+  display_iter: 13000
+  is_resume: false
+  lr: 0.001
+  lr_decay: 0.1
+  lr_decay_steps:
+  - 10000
+  max_epoch: 1000
+  momentum: 0.9
+  num_workers: 0
+  optimizer: Adam
+  resume_model: None
+  shuffle: true
+  snapshot_epoch: 20000
+  valid_epoch: 1
+  wd: 0.0
+use_gpu: true

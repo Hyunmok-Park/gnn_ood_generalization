@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="1b14de2d-ffab-4fce-b1b0-5b44bf96e92b" name="nvidia" url="http://192.168.1.10">
+        <fileTransfer host="192.168.1.10" port="22" accessType="SFTP">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+          <option name="port" value="22" />
+        </fileTransfer>
+      </webServer>
+      <webServer id="54ad6d77-7dd8-474e-85a9-851fc4bbeaa2" name="nipa">
+        <fileTransfer host="175.106.90.225" port="16022" rootFolder="/home/ubuntu" accessType="SFTP">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+          <option name="port" value="16022" />
+        </fileTransfer>
+      </webServer>
+      <webServer id="b29f6279-fcb5-49be-8fbe-250eb50bdeac" name="nipa_home">
+        <fileTransfer host="175.106.90.225" port="16022" rootFolder="/home/ubuntu" accessType="SFTP">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+          <option name="port" value="16022" />
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>

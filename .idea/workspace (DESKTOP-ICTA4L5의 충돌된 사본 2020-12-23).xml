@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ChangeListManager">
+    <list default="true" id="a5564c4e-7366-4a9f-a5cd-724d2a3afb04" name="Default Changelist" comment="" />
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="JupyterTrust" id="cfc82b45-52f5-4596-9026-b1cfbcf9f723" />
+  <component name="ProjectId" id="1jXO7NPDJOjupIEuco5QJUgyPjH" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">
+    <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
+    <property name="RunOnceActivity.ShowReadmeOnStart" value="true" />
+    <property name="WebServerToolWindowFactoryState" value="true" />
+    <property name="WebServerToolWindowPanel.toolwindow.highlight.mappings" value="true" />
+    <property name="WebServerToolWindowPanel.toolwindow.highlight.symlinks" value="true" />
+    <property name="WebServerToolWindowPanel.toolwindow.show.date" value="false" />
+    <property name="WebServerToolWindowPanel.toolwindow.show.permissions" value="false" />
+    <property name="WebServerToolWindowPanel.toolwindow.show.size" value="false" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
+    <property name="settings.editor.selected.configurable" value="com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable" />
+  </component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\Users\mokss\Dropbox\TorchGNN_project" />
+      <recent name="C:\Users\mokss\Dropbox\TorchGNN_project\config" />
+      <recent name="$PROJECT_DIR$/config" />
+      <recent name="$PROJECT_DIR$" />
+      <recent name="C:\Users\mokss\Dropbox\TorchGNN_project\dataset" />
+    </key>
+  </component>
+  <component name="SvnConfiguration">
+    <configuration />
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="a5564c4e-7366-4a9f-a5cd-724d2a3afb04" name="Default Changelist" comment="" />
+      <created>1603946801367</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1603946801367</updated>
+      <workItem from="1603946826693" duration="19966000" />
+      <workItem from="1604200589264" duration="17668000" />
+      <workItem from="1604295678069" duration="14414000" />
+      <workItem from="1604403487258" duration="8805000" />
+      <workItem from="1604467542212" duration="8386000" />
+      <workItem from="1604549094591" duration="21140000" />
+      <workItem from="1604818703015" duration="3785000" />
+      <workItem from="1604896551235" duration="4125000" />
+      <workItem from="1604921264400" duration="8000" />
+      <workItem from="1604939151499" duration="27000" />
+      <workItem from="1605154406858" duration="2730000" />
+      <workItem from="1605196369188" duration="1985000" />
+      <workItem from="1605581226377" duration="2728000" />
+      <workItem from="1605718713166" duration="77000" />
+      <workItem from="1606108541810" duration="98000" />
+      <workItem from="1606716864437" duration="1000" />
+      <workItem from="1606804033980" duration="1487000" />
+      <workItem from="1607750696683" duration="2134000" />
+      <workItem from="1607754000840" duration="659000" />
+      <workItem from="1607786979237" duration="2716000" />
+      <workItem from="1607802026300" duration="6727000" />
+      <workItem from="1607833590683" duration="41000" />
+      <workItem from="1608006651014" duration="2839000" />
+      <workItem from="1608014272786" duration="2242000" />
+      <workItem from="1608038516349" duration="4500000" />
+      <workItem from="1608064622576" duration="853000" />
+      <workItem from="1608178236996" duration="6418000" />
+      <workItem from="1608304557379" duration="3406000" />
+      <workItem from="1608617026854" duration="5293000" />
+      <workItem from="1608630830577" duration="2067000" />
+      <workItem from="1608653867767" duration="1894000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="2" />
+  </component>
+  <component name="WindowStateProjectService">
+    <state x="267" y="212" width="1124" height="669" key="#Deployment" timestamp="1608718945507">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="267" y="212" key="#Deployment/0.0.1920.1040/1920.0.1920.1040/-1920.0.1920.1040@0.0.1920.1040" timestamp="1608718945507" />
+    <state x="2187" y="212" key="#Deployment/0.0.1920.1040/1920.0.1920.1040/-1920.0.1920.1040@1920.0.1920.1040" timestamp="1608304662456" />
+    <state x="2187" y="212" key="#Deployment/1920.0.1920.1040/0.0.1920.1040/-1920.0.1920.1040@1920.0.1920.1040" timestamp="1607827751759" />
+    <state x="2187" y="212" key="#Deployment/1920.0.1920.1040/0.0.1920.1040@1920.0.1920.1040" timestamp="1607750719839" />
+    <state x="2404" y="384" key="#Deployment/2048.95.2560.1417/44.23.2004.1129@2048.95.2560.1417" timestamp="1608617534904" />
+    <state x="323" y="253" width="1124" height="669" key="#Deployment/2048.95.2560.1417/44.23.2004.1129@44.23.2004.1129" timestamp="1605601740314" />
+    <state x="785" y="341" key="#com.intellij.refactoring.safeDelete.UnsafeUsagesDialog" timestamp="1603958377101">
+      <screen x="44" y="23" width="2004" height="1129" />
+    </state>
+    <state x="785" y="341" key="#com.intellij.refactoring.safeDelete.UnsafeUsagesDialog/2048.95.2560.1417/44.23.2004.1129@44.23.2004.1129" timestamp="1603958377101" />
+    <state x="2660" y="275" key="FileChooserDialogImpl" timestamp="1607802080689">
+      <screen x="1920" y="0" width="1920" height="1040" />
+    </state>
+    <state x="2660" y="275" key="FileChooserDialogImpl/1920.0.1920.1040/0.0.1920.1040/-1920.0.1920.1040@1920.0.1920.1040" timestamp="1607802080689" />
+    <state x="2660" y="275" key="FileChooserDialogImpl/1920.0.1920.1040/0.0.1920.1040@1920.0.1920.1040" timestamp="1605718788419" />
+    <state x="548" y="226" key="SettingsEditor" timestamp="1604551450219">
+      <screen x="44" y="23" width="2004" height="1129" />
+    </state>
+    <state x="548" y="226" key="SettingsEditor/2048.95.2560.1417/44.23.2004.1129@44.23.2004.1129" timestamp="1604551450219" />
+    <state x="548" y="226" key="SettingsEditor/44.23.2004.1129@44.23.2004.1129" timestamp="1603947532590" />
+    <state x="716" y="278" width="608" height="539" key="ftp.server.browser" timestamp="1608653878483">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="716" y="278" width="608" height="539" key="ftp.server.browser/0.0.1920.1040/1920.0.1920.1040/-1920.0.1920.1040@0.0.1920.1040" timestamp="1608653878483" />
+    <state x="2636" y="278" width="727" height="539" key="ftp.server.browser/0.0.1920.1040/1920.0.1920.1040/-1920.0.1920.1040@1920.0.1920.1040" timestamp="1608304659074" />
+    <state x="2636" y="278" key="ftp.server.browser/1920.0.1920.1040/0.0.1920.1040@1920.0.1920.1040" timestamp="1607750716231" />
+    <state x="3003" y="474" width="733" height="525" key="ftp.server.browser/2048.95.2560.1417/44.23.2004.1129@2048.95.2560.1417" timestamp="1608617529597" />
+    <state x="791" y="325" width="687" height="525" key="ftp.server.browser/2048.95.2560.1417/44.23.2004.1129@44.23.2004.1129" timestamp="1605601711859" />
+    <state x="2879" y="402" width="896" height="924" key="search.everywhere.popup" timestamp="1604487897161">
+      <screen x="2048" y="95" width="2560" height="1417" />
+    </state>
+    <state x="2543" y="225" width="672" height="678" key="search.everywhere.popup/0.0.1920.1040/1920.0.1920.1040/-1920.0.1920.1040@1920.0.1920.1040" timestamp="1604205655937" />
+    <state x="2879" y="402" width="896" height="924" key="search.everywhere.popup/2048.95.2560.1417/44.23.2004.1129@2048.95.2560.1417" timestamp="1604487897161" />
+  </component>
+</project>

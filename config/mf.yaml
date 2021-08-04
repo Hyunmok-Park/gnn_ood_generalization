@@ -1,0 +1,26 @@
+---
+dataset:
+  data_path: ../data_temp/data_temp_exp4/train16_test10/test_0.9/900
+  loader_name: RandCRFData
+  name: rand_crf
+  num_node: 900
+  split: grid_0.9
+exp_dir: ../GNN_exp/node_gnn/exp_4/train16_grid900/0.9_0.9/NodeGNN_013_rand_crf_2020-May-31-14-54-04_train_all
+exp_name: MeanField
+gpus:
+- 0
+model:
+  damping: 0.0
+  max_iter: 15
+  name: MeanField
+runner: AlgorithmicInferenceRunner
+seed: 1234
+test:
+  KL_order: pq
+  batch_size: 1
+  num_workers: 0
+  test_model: null
+train:
+  batch_size: 1
+  num_workers: 0
+use_gpu: false

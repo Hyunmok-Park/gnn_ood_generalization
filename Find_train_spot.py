@@ -1,11 +1,9 @@
-# print("asdf")
 import os
 import collections
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 import shutil
-# from dataset import *
 import argparse
 import pickle
 import numpy as np

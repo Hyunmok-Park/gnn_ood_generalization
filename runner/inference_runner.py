@@ -29,7 +29,7 @@ import shutil
 
 logger = get_logger('exp_logger')
 EPS = float(np.finfo(np.float32).eps)
-__all__ = ['NeuralInferenceRunner', 'AlgorithmicInferenceRunner_bp', 'AlgorithmicInferenceRunner', 'NeuralInferenceRunner_MT']
+__all__ = ['NeuralInferenceRunner', 'NeuralInferenceRunner_Meta','AlgorithmicInferenceRunner_bp', 'AlgorithmicInferenceRunner', 'NeuralInferenceRunner_MT']
 
 class NeuralInferenceRunner(object):
   def __init__(self, config):
@@ -302,10 +302,199 @@ class NeuralInferenceRunner(object):
 
     return test_loss
 
-  def MetaTest(self):
+class NeuralInferenceRunner_Meta(object):
+  def __init__(self, config, config2):
+    self.config = config
+    self.dataset_conf = config.dataset
+
+    self.config2 = config2
+    self.dataset_conf2 = config2.dataset
+
+    self.model_conf = config.model
+    self.train_conf = config.train
+    self.test_conf = config.test
+    self.use_gpu = config.use_gpu
+    self.gpus = config.gpus
+    self.writer = SummaryWriter(config.save_dir)
+    self.shuffle = config.train.shuffle
+    self.parallel = config.model.name == "TorchGNN_MsgGNN_parallel"
+    self.master_node = config.model.master_node if config.model.master_node is not None else False
+    self.SSL = config.model.SSL
+    self.train_pretext = config.model.train_pretext
+
+  @property
+  def train(self):
+    train_begin_time = time.time()
+    # create data loader
+    torch.cuda.empty_cache()
+    train_loader1, _ = eval(self.dataset_conf.loader_name)(self.config, split='train', shuffle=self.shuffle, parallel=self.parallel, master_node=self.master_node)
+    train_loader2, _ = eval(self.dataset_conf2.loader_name)(self.config2, split='train', shuffle=self.shuffle,parallel=self.parallel, master_node=self.master_node)
+    val_loader1, _ = eval(self.dataset_conf.loader_name)(self.config, split='val', shuffle=self.shuffle, parallel=self.parallel, master_node=self.master_node)
+    val_loader2, _ = eval(self.dataset_conf2.loader_name)(self.config2, split='val', shuffle=self.shuffle,parallel=self.parallel, master_node=self.master_node)
+
+    # create models
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    model = eval(self.model_conf.name)(self.config)
+
+    # fix parameter(pretext)
+    if self.SSL and not self.train_pretext:
+      print("Fixing parameter")
+      for name, param in model.named_parameters():
+        if "output_func" not in name:
+          param.requires_grad = False
+        if "pretext_output_func" in name:
+          param.requires_grad = True
+
+    if self.use_gpu:
+      if self.parallel:
+        print("Using GPU dataparallel")
+        print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
+        model = DataParallel(model)
+      else:
+        print("Using single GPU")
+        model = nn.DataParallel(model, device_ids=self.gpus)
+        # model = DataParallel(model)
+    model.to(device)
+    print(model)
+
+    # create optimizer
+    params = filter(lambda p: p.requires_grad, model.parameters())
+    if self.train_conf.optimizer == 'SGD':
+      optimizer = optim.SGD(
+        params,
+        lr=self.train_conf.lr,
+        momentum=self.train_conf.momentum,
+        weight_decay=self.train_conf.wd)
+    elif self.train_conf.optimizer == 'Adam':
+        optimizer = optim.Adam(
+          params,
+          lr=self.train_conf.lr,
+          weight_decay=self.train_conf.wd)
+    else:
+      raise ValueError("Non-supported optimizer!")
+
+    early_stop = EarlyStopper([0.0], win_size=10, is_decrease=False)
+
+    lr_scheduler = optim.lr_scheduler.MultiStepLR(
+      optimizer,
+      milestones=self.train_conf.lr_decay_steps,
+      gamma=self.train_conf.lr_decay)
+
+    # reset gradient
+    optimizer.zero_grad()
+
+    # resume training
+    if self.train_conf.is_resume:
+      load_model(model, self.config.train.resume_model, optimizer=optimizer, train_pretext=self.train_pretext)
+
+    #========================= Training Loop =============================#
+    iter_count = 0
+    best_val_loss = np.inf
+    results = defaultdict(list)
+    for epoch in range(self.train_conf.max_epoch):
+      # ===================== validation ============================ #
+      if (epoch + 1) % self.train_conf.valid_epoch == 0 or epoch == 0:
+        model.eval()
+        val_loss = []
+        for data1, data2 in tqdm(zip(val_loader1, val_loader2)):
+          if "TorchGNN_MsgGNN" not in self.model_conf.name:
+              data1['idx_msg_edge'] = torch.tensor([0,0]).contiguous().long()
+              data2['idx_msg_edge'] = torch.tensor([0,0]).contiguous().long()
+
+          node_idx_inv1 = [0 for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)]
+          node_idx1 = [[_ for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)], []]
+          node_idx_inv2 = [1 for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)]
+          node_idx2 = [[], [_ for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)]]
+
+        with torch.no_grad():
+            _, loss1 = model(data1['edge_attr'], data1['x'], data1['edge_index'], data1['idx_msg_edge'], target=data1['y'], node_idx=node_idx1, node_idx_inv=node_idx_inv1)
+            _, loss2 = model(data2['edge_attr'], data2['x'], data2['edge_index'], data2['idx_msg_edge'], target=data2['y'], node_idx=node_idx2, node_idx_inv=node_idx_inv2)
+            val_loss += [float(loss1.data.cpu().numpy())]
+            val_loss += [float(loss2.data.cpu().numpy())]
+
+        val_loss = np.stack(val_loss).mean()
+        results['val_loss'] += [val_loss]
+        logger.info("Avg. Validation Loss = {} +- {}, {} epoch".format(val_loss, 0, epoch))
+        self.writer.add_scalar('val_loss', val_loss, iter_count)
+
+        # save best model
+        if val_loss < best_val_loss:
+          best_val_loss = val_loss
+          snapshot(
+            model.module if self.use_gpu else model,
+            optimizer,
+            self.config,
+            epoch + 1,
+            tag="best")
+
+        logger.info("Current Best Validation Loss = {}".format(best_val_loss))
+
+        # check early stop
+        if early_stop.tick([val_loss]):
+          snapshot(
+            model.module if self.use_gpu else model,
+            optimizer,
+            self.config,
+            epoch + 1,
+            tag='last')
+          self.writer.close()
+          break
+      # ====================== training ============================= #
+      model.train()
+      lr_scheduler.step()
+      for data1, data2 in zip(train_loader1, train_loader2):
+        # 0. clears all gradients.
+        optimizer.zero_grad()
+        # if self.use_gpu:
+        if "TorchGNN_MsgGNN" not in self.model_conf.name:
+          data1['idx_msg_edge'] = torch.tensor([0, 0]).contiguous().long()
+          data2['idx_msg_edge'] = torch.tensor([0, 0]).contiguous().long()
+
+        # 1. forward pass
+        # 2. compute loss
+        node_idx_inv1 = [0 for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)]
+        node_idx1 = [[_ for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)], []]
+        node_idx_inv2 = [1 for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)]
+        node_idx2 = [[], [_ for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)]]
+
+        _, loss1 = model(data1['edge_attr'], data1['x'], data1['edge_index'], data1['idx_msg_edge'], target=data1['y'], node_idx=node_idx1, node_idx_inv=node_idx_inv1)
+        _, loss2 = model(data2['edge_attr'], data2['x'], data2['edge_index'], data2['idx_msg_edge'], target=data2['y'], node_idx=node_idx2, node_idx_inv=node_idx_inv2)
+        loss = loss1 + loss2
+
+        # 3. backward pass (accumulates gradients).
+        loss.backward()
+        # 4. performs a single update step.
+        optimizer.step()
+
+        train_loss = float(loss.data.cpu().numpy())
+        results['train_loss'] += [train_loss]
+        results['train_step'] += [iter_count]
+        self.writer.add_scalar('train_loss', train_loss, iter_count)
+
+        # display loss
+        if (iter_count + 1) % self.train_conf.display_iter == 0:
+          logger.info("Train Loss @ epoch {:04d} iteration {:08d} = {}".format(epoch + 1, iter_count + 1, train_loss))
+
+        iter_count += 1
+      # snapshot model
+      if (epoch + 1) % self.train_conf.snapshot_epoch == 0:
+        logger.info("Saving Snapshot @ epoch {:04d}".format(epoch + 1))
+        snapshot(model.module if self.use_gpu else model, optimizer, self.config, epoch + 1)
+
+    print(np.array(results['hidden_state']).shape)
+    results['best_val_loss'] += [best_val_loss]
+    train_end_time = time.time()
+    results['total_time'] = train_end_time-train_begin_time
+    pickle.dump(results, open(os.path.join(self.config.save_dir, 'train_stats.p'), 'wb'))
+    self.writer.close()
+    logger.info("Best Validation Loss = {}".format(best_val_loss))
+
+    return best_val_loss
+
+  def test(self):
     def propose_new_sturucture(data):
-      node_idx_inv = copy.deepcopy(data['node_idx_inv'])
-      node_idx = copy.deepcopy(data['node_idx'])
+      node_idx_inv = copy.deepcopy(data['node_idx_inv'][0])
+      node_idx = copy.deepcopy(data['node_idx'][0])
 
       change_node = (np.random.rand() > 0.5)
       if change_node:
@@ -322,7 +511,7 @@ class NeuralInferenceRunner(object):
           new_module = np.random.randint(2)
         node_idx_inv[idx] = new_module
         node_idx[new_module].append(idx)
-      return node_idx, node_idx_inv
+      return [node_idx], [node_idx_inv]
 
     print(self.dataset_conf.loader_name)
     print(self.dataset_conf.split)
@@ -354,29 +543,39 @@ class NeuralInferenceRunner(object):
     pred_pts = []
     gt_pts = []
     state_hist = []
-    for step in tqdm(range(1000)):
+    for step in tqdm(range(500), desc="META TEST"):
       for data in tqdm(test_loader):
         if "TorchGNN_MsgGNN" not in self.model_conf.name:
           data['idx_msg_edge'] = torch.tensor([0, 0]).contiguous().long()
 
         with torch.no_grad():
-          log_prob, loss = model(data['edge_attr'], data['x'], data['edge_index'], data['idx_msg_edge'], target=data['y'], node_idx=data['node_idx'], node_idx_inv=data['node_idx_inv'])
+          log_prob, loss = model(data['edge_attr'], data['x'], data['edge_index'], data['idx_msg_edge'], target=data['y'], node_idx=data['node_idx'][0], node_idx_inv=data['node_idx_inv'][0])
 
           old_node_idx, old_node_idx_inv = data['node_idx'], data['node_idx_inv']
           new_node_idx, new_node_idx_inv = propose_new_sturucture(data)
           data['node_idx'], data['node_idx_inv'] = new_node_idx, new_node_idx_inv
 
           log_prob_new, loss_new = model(data['edge_attr'], data['x'], data['edge_index'], data['idx_msg_edge'],
-                                target=data['y'], node_idx=data['node_idx'], node_idx_inv=data['node_idx_inv'])
+                                target=data['y'], node_idx=data['node_idx'][0], node_idx_inv=data['node_idx_inv'][0])
 
           if loss > loss_new:
             data['node_idx'], data['node_idx_inv'] = new_node_idx, new_node_idx_inv
           else:
             data['node_idx'], data['node_idx_inv'] = old_node_idx, old_node_idx_inv
 
+    print("=======================================")
+    print("TEST")
+    print("=======================================")
+    for data in tqdm(test_loader):
+      if "TorchGNN_MsgGNN" not in self.model_conf.name:
+        data['idx_msg_edge'] = torch.tensor([0, 0]).contiguous().long()
 
-    test_loss = np.stack(test_loss).mean()
-    logger.info("Avg. Test Loss = {} +- {}".format(test_loss, 0))
+      with torch.no_grad():
+        log_prob, loss = model(data['edge_attr'], data['x'], data['edge_index'], data['idx_msg_edge'], target=data['y'],
+                               node_idx=data['node_idx'][0], node_idx_inv=data['node_idx_inv'][0])
+
+        pred_pts += [torch.exp(log_prob).data.cpu().numpy()]
+        gt_pts += [data['y'].data.cpu().numpy()]
 
     pred_pts = np.concatenate(pred_pts, axis=0)
     gt_pts = np.concatenate(gt_pts, axis=0)

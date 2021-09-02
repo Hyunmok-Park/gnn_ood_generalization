@@ -35,6 +35,7 @@ def Torchloader(config, split="train", shuffle=False, parallel=False, master_nod
         graph_data = pickle.load(open(i, "rb"))
         G = nx.from_numpy_array(graph_data['J'].todense())
         J = torch.tensor(graph_data['J'].todense()).float()
+        num_nodes_I = J.size(0)
         degree = torch.tensor(np.array([val for (node, val) in G.degree()])).float()
         edge_index = torch.tensor(graph_data['msg_node']).t().contiguous().long()
         if config.model.name == "TorchGNN_MsgGNN" or config.model.name == "TorchGNN_MsgGNN_parallel":

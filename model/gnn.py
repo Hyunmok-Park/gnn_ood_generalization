@@ -67,14 +67,14 @@ class TorchGNN(nn.Module):
         nn.Linear(64, 1),
       ])
 
-    # #JUMPING KNOWLEDGE
-    # self.output_JK = nn.Sequential(*[
-    #   nn.Linear(self.hidden_dim * self.num_prop,  64),
-    #   nn.ReLU(),
-    #   nn.Linear(64, 64),
-    #   nn.ReLU(),
-    #   nn.Linear(64, 2),
-    # ])
+    #JUMPING KNOWLEDGE
+    self.output_JK = nn.Sequential(*[
+      nn.Linear(self.hidden_dim * self.num_prop,  64),
+      nn.ReLU(),
+      nn.Linear(64, 64),
+      nn.ReLU(),
+      nn.Linear(64, 2),
+    ])
 
     if self.config.model.loss == 'KL-pq' or self.config.model.loss == 'KL-qp':
       self.loss_func = nn.KLDivLoss(reduction='batchmean')
@@ -337,17 +337,17 @@ class GeoLayer(MessagePassing):
     self.update_func = nn.GRUCell(
       input_size=self.hidden_dim, hidden_size=self.hidden_dim)
 
-    # self.update_down = nn.Sequential(*[
-    #   nn.Linear(2*self.hidden_dim, self.hidden_dim),
-    #   nn.ReLU(),
-    #   #nn.Linear(self.hidden_dim, self.hidden_dim),
-    #   #nn.ReLU()
-    # ])
-    #
-    # self.gating = nn.Sequential(*[
-    #   nn.Linear(self.hidden_dim, self.hidden_dim),
-    #   nn.Sigmoid()
-    # ])
+    self.update_down = nn.Sequential(*[
+      nn.Linear(2*self.hidden_dim, self.hidden_dim),
+      nn.ReLU(),
+      #nn.Linear(self.hidden_dim, self.hidden_dim),
+      #nn.ReLU()
+    ])
+
+    self.gating = nn.Sequential(*[
+      nn.Linear(self.hidden_dim, self.hidden_dim),
+      nn.Sigmoid()
+    ])
 
     self._init_param()
 

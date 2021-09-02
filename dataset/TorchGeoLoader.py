@@ -11,6 +11,7 @@ from utils.arg_helper import get_config
 import time
 from utils.data_helper import DataListLoader, DataLoader
 from collections import Counter
+import random
 
 def Torchloader(config, split="train", shuffle=False, parallel=False, master_node=False):
     tik = time.time()
@@ -41,6 +42,7 @@ def Torchloader(config, split="train", shuffle=False, parallel=False, master_nod
         # edge_index[[0, 1]] = edge_index[[1, 0]]
         edge_attr = torch.tensor(graph_data['J_msg']).float()
         b = torch.tensor(graph_data['b']).float()
+        node_idx = [random.choice([0, 1]) for i in range(num_nodes_I)]
 
         #################
         # D-Pattern
@@ -167,13 +169,15 @@ def Torchloader(config, split="train", shuffle=False, parallel=False, master_nod
             data_list.append(data)
             name_list.append(name)
 
+
+
         elif config.model.name == "TorchGNN_MsgGNN" or config.model.name == "TorchGNN_MsgGNN_parallel":
             # data = Data(x=b, edge_index=edge_index, edge_attr=edge_attr, y=y, degree=degree, J=J, idx_msg_edge=idx_msg_edge)
             data = Data(x=b, edge_index=edge_index, edge_attr=edge_attr, y=y, idx_msg_edge=idx_msg_edge)
         else:
             # data = Data(x=b, edge_index=edge_index, edge_attr=edge_attr, y=y, degree=degree, J=J)
             # data = Data(x=b, edge_index=edge_index, edge_attr=edge_attr, y=y, degree=pattern_list)#, pattern=pattern_list)
-            data = Data(x=b, edge_index=edge_index, edge_attr=edge_attr, y=y, J=J)#, pattern=pattern_list)
+            data = Data(x=b, edge_index=edge_index, edge_attr=edge_attr, y=y, J=J, node_idx = node_idx)#, pattern=pattern_list)
         data_list.append(data)
         name_list.append(name)
 
@@ -182,6 +186,7 @@ def Torchloader(config, split="train", shuffle=False, parallel=False, master_nod
         loader = DataListLoader(data_list, batch_size=batch_size, shuffle=shuffle, pin_memory=True)
     else:
         loader = DataLoader(data_list, batch_size=batch_size, shuffle=shuffle, pin_memory=True)
+
     print("data loading time: ", time.time() - tik)
     return loader, name_list
 

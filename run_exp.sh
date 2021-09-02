@@ -1,19 +1,19 @@
 #!/bin/sh
 export CUDA_VISIBLE_DEVICES=0
 
-for i in 0 2 4
+for i in 0
 do
-    python3 run_exp_local.py -c config/node_gnn$i.yaml &
+    python3 run_exp_local.py -c config/node_gnn$i.yaml
     sleep 3
 done
 
-export CUDA_VISIBLE_DEVICES=1
-
-for i in 1 3 5
-do
-    python3 run_exp_local.py -c config/node_gnn$i.yaml &
-    sleep 3
-done
+#export CUDA_VISIBLE_DEVICES=1
+#
+#for i in 1 3 5
+#do
+#    python3 run_exp_local.py -c config/node_gnn$i.yaml &
+#    sleep 3
+#done
 
 #export CUDA_VISIBLE_DEVICES=2
 #

@@ -1,6 +1,6 @@
 ---
 dataset:
-  data_path: /home/ubuntu/TorchGNN_project/data_temp/exp2_train_100_0.3/group_4_2
+  data_path: /home/ubuntu/TorchGNN_project/data_temp/exp2_train_100_0.3/group_4
   loader_name: Torchloader
   name : TorchGeoLoader
   num_node: 100

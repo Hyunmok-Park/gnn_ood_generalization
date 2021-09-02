@@ -101,7 +101,7 @@ class TorchGNN(nn.Module):
           m.bias.data.zero_()
 
   # def forward(self, J_msg, b, msg_node, degree, idx_msg_edge, target=None):
-  def forward(self, J_msg, b, msg_node, idx_msg_edge, target=None):
+  def forward(self, J_msg, b, msg_node, idx_msg_edge, target=None, node_idx=None):
     """
       A: shape |V| X |V|
       J: shape |V| X |V|

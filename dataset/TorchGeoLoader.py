@@ -42,7 +42,10 @@ def Torchloader(config, split="train", shuffle=False, parallel=False, master_nod
         # edge_index[[0, 1]] = edge_index[[1, 0]]
         edge_attr = torch.tensor(graph_data['J_msg']).float()
         b = torch.tensor(graph_data['b']).float()
-        node_idx = [random.choice([0, 1]) for i in range(num_nodes_I)]
+        node_idx_inv = [random.choice([0, 1]) for i in range(num_nodes_I)]
+        node_idx = [[], []]
+        for idx, i in enumerate(node_idx_inv):
+            node_idx[i].append(idx)
 
         #################
         # D-Pattern
@@ -177,7 +180,7 @@ def Torchloader(config, split="train", shuffle=False, parallel=False, master_nod
         else:
             # data = Data(x=b, edge_index=edge_index, edge_attr=edge_attr, y=y, degree=degree, J=J)
             # data = Data(x=b, edge_index=edge_index, edge_attr=edge_attr, y=y, degree=pattern_list)#, pattern=pattern_list)
-            data = Data(x=b, edge_index=edge_index, edge_attr=edge_attr, y=y, J=J, node_idx = node_idx)#, pattern=pattern_list)
+            data = Data(x=b, edge_index=edge_index, edge_attr=edge_attr, y=y, J=J, node_idx = node_idx, node_idx_inv=node_idx_inv)#, pattern=pattern_list)
         data_list.append(data)
         name_list.append(name)
 

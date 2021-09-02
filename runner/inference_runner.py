@@ -1,6 +1,7 @@
 from __future__ import (division, print_function)
 
 import collections
+import copy
 import os
 import time
 
@@ -281,6 +282,98 @@ class NeuralInferenceRunner(object):
 
         pred_pts += [torch.exp(log_prob).data.cpu().numpy()]
         gt_pts += [data['y'].data.cpu().numpy()]
+
+    test_loss = np.stack(test_loss).mean()
+    logger.info("Avg. Test Loss = {} +- {}".format(test_loss, 0))
+
+    pred_pts = np.concatenate(pred_pts, axis=0)
+    gt_pts = np.concatenate(gt_pts, axis=0)
+    name_list = np.array(name_list)
+    state_hist = np.array(state_hist)
+    np.savetxt(self.config.save_dir + '/pred_pts_' + self.dataset_conf.split + '.csv', pred_pts, delimiter='\t')
+    np.savetxt(self.config.save_dir + '/gt_pts_' + self.dataset_conf.split + '.csv', gt_pts, delimiter='\t')
+    file_name = os.path.join(self.config.save_dir, "name.p")
+    with open(file_name, 'wb') as f:
+      pickle.dump(name_list, f)
+
+    file_name = os.path.join(self.config.save_dir, "state_hist.p")
+    with open(file_name, 'wb') as f:
+      pickle.dump(state_hist, f)
+
+    return test_loss
+
+  def MetaTest(self):
+    def propose_new_sturucture(data):
+      node_idx_inv = copy.deepcopy(data['node_idx_inv'])
+      node_idx = copy.deepcopy(data['node_idx'])
+
+      change_node = (np.random.rand() > 0.5)
+      if change_node:
+        idx = -1
+        while idx == -1 or node_idx_inv[idx] >= 2:
+          idx = np.random.randint(len(node_idx_inv))
+        # Remove from old
+        old_module = node_idx_inv[idx]
+        pos_in_old = node_idx[old_module].index(idx)
+        del node_idx[old_module][pos_in_old]
+        # Add to new
+        new_module = old_module
+        while new_module == old_module:
+          new_module = np.random.randint(2)
+        node_idx_inv[idx] = new_module
+        node_idx[new_module].append(idx)
+      return node_idx, node_idx_inv
+
+    print(self.dataset_conf.loader_name)
+    print(self.dataset_conf.split)
+
+    # create data loader
+    test_loader, name_list = eval(self.dataset_conf.loader_name)(self.config, split='test', shuffle=False)
+
+    # create models
+    model = eval(self.model_conf.name)(self.config, test=True)
+    if 'GNN' in self.model_conf.name:
+      load_model(model, self.test_conf.test_model, train_pretext=self.train_pretext)
+
+    # create models
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    if self.use_gpu:
+      if self.parallel:
+        print("Using GPU dataparallel")
+        print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
+        model = DataParallel(model)
+      else:
+        print("Using single GPU")
+        model = nn.DataParallel(model, device_ids=self.gpus)
+        # model = DataParallel(model)
+    model.to(device)
+    print(model)
+
+    model.eval()
+    test_loss = []
+    pred_pts = []
+    gt_pts = []
+    state_hist = []
+    for step in tqdm(range(1000)):
+      for data in tqdm(test_loader):
+        if "TorchGNN_MsgGNN" not in self.model_conf.name:
+          data['idx_msg_edge'] = torch.tensor([0, 0]).contiguous().long()
+
+        with torch.no_grad():
+          log_prob, loss = model(data['edge_attr'], data['x'], data['edge_index'], data['idx_msg_edge'], target=data['y'], node_idx=data['node_idx'], node_idx_inv=data['node_idx_inv'])
+
+          old_node_idx, old_node_idx_inv = data['node_idx'], data['node_idx_inv']
+          new_node_idx, new_node_idx_inv = propose_new_sturucture(data)
+          data['node_idx'], data['node_idx_inv'] = new_node_idx, new_node_idx_inv
+
+          log_prob_new, loss_new = model(data['edge_attr'], data['x'], data['edge_index'], data['idx_msg_edge'],
+                                target=data['y'], node_idx=data['node_idx'], node_idx_inv=data['node_idx_inv'])
+
+          if loss > loss_new:
+            data['node_idx'], data['node_idx_inv'] = new_node_idx, new_node_idx_inv
+          else:
+            data['node_idx'], data['node_idx_inv'] = old_node_idx, old_node_idx_inv
+
 
     test_loss = np.stack(test_loss).mean()
     logger.info("Avg. Test Loss = {} +- {}".format(test_loss, 0))

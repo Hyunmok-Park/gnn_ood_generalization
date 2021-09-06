@@ -515,6 +515,7 @@ class NeuralInferenceRunner_Meta(object):
 
     print(self.dataset_conf.loader_name)
     print(self.dataset_conf.split)
+    tik = time.time()
 
     # create data loader
     test_loader, name_list = eval(self.dataset_conf.loader_name)(self.config, split='test', shuffle=False)
@@ -543,6 +544,7 @@ class NeuralInferenceRunner_Meta(object):
     pred_pts = []
     gt_pts = []
     state_hist = []
+    structure_info = []
     for step in tqdm(range(500), desc="META TEST"):
       for data in tqdm(test_loader):
         if "TorchGNN_MsgGNN" not in self.model_conf.name:
@@ -551,7 +553,7 @@ class NeuralInferenceRunner_Meta(object):
         with torch.no_grad():
           log_prob, loss = model(data['edge_attr'], data['x'], data['edge_index'], data['idx_msg_edge'], target=data['y'], node_idx=data['node_idx'][0], node_idx_inv=data['node_idx_inv'][0])
 
-          old_node_idx, old_node_idx_inv = data['node_idx'], data['node_idx_inv']
+          old_node_idx, old_node_idx_inv = copy.deepcopy(data['node_idx']), copy.deepcopy(data['node_idx_inv'])
           new_node_idx, new_node_idx_inv = propose_new_sturucture(data)
           data['node_idx'], data['node_idx_inv'] = new_node_idx, new_node_idx_inv
 
@@ -576,16 +578,27 @@ class NeuralInferenceRunner_Meta(object):
 
         pred_pts += [torch.exp(log_prob).data.cpu().numpy()]
         gt_pts += [data['y'].data.cpu().numpy()]
+        structure_info.append(data['node_idx_inv'][0])
 
     pred_pts = np.concatenate(pred_pts, axis=0)
     gt_pts = np.concatenate(gt_pts, axis=0)
     name_list = np.array(name_list)
     state_hist = np.array(state_hist)
+    structure_info = np.array(structure_info)
     np.savetxt(self.config.save_dir + '/pred_pts_' + self.dataset_conf.split + '.csv', pred_pts, delimiter='\t')
     np.savetxt(self.config.save_dir + '/gt_pts_' + self.dataset_conf.split + '.csv', gt_pts, delimiter='\t')
     file_name = os.path.join(self.config.save_dir, "name.p")
+    total_time = time.time() - tik
+
+    with open(os.path.join(self.config.save_dir, "{}.txt".format(total_time)), 'wb') as f:
+      pickle.dump(total_time, f)
+
     with open(file_name, 'wb') as f:
       pickle.dump(name_list, f)
+
+    file_name = os.path.join(self.config.save_dir, "sturucture_info.p")
+    with open(file_name, 'wb') as f:
+      pickle.dump(structure_info, f)
 
     file_name = os.path.join(self.config.save_dir, "state_hist.p")
     with open(file_name, 'wb') as f:

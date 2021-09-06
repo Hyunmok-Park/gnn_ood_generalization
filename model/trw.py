@@ -44,6 +44,7 @@ class TreeReWeightedMessagePassing(nn.Module):
     prob_step = []
     for tt in range(self.num_trees):
       num_edges = msg_node[tt].shape[0]
+      print("sssssss", msg_node.shape)
       edge_in = msg_node[tt, :, 0]  # shape E X 1
       edge_out = msg_node[tt, :, 1]  # shape E X 1
       edge_np = list(zip(edge_in.data.cpu().numpy(), edge_out.data.cpu().numpy()))
@@ -79,7 +80,7 @@ class TreeReWeightedMessagePassing(nn.Module):
       for ii in range(self.max_iter):
         log_msg = (1 - self.damping) * torch.logsumexp(
             mask * (log_phi[edge_in].unsqueeze(dim=2) + log_psi + torch.mm(
-                msg_adj[tt].t(), log_msg).unsqueeze(dim=2).float()),
+                msg_adj[tt].t(), log_msg.long()).unsqueeze(dim=2).float()),
             dim=1) + self.damping * log_msg
         log_msg = log_msg - torch.logsumexp(log_msg, dim=1, keepdim=True)
 

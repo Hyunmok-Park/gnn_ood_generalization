@@ -93,8 +93,7 @@ class BlockGibbs(object):
 
       # sampling
       final_state = []
-      print("GIBBS")
-      for ii in tqdm(range(0, num_sample * sample_gap)):
+      for ii in tqdm(range(0, num_sample * sample_gap), leave=False, desc="Gibbs"):
         # generate block
         block_idx = self.npr.choice(self.num_nodes, size=self.block_size, replace=False)
         # sample

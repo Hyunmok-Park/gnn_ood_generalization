@@ -172,7 +172,7 @@ class EarlyStop:
 def train(net, optimizer, J, b, target):
     LOSS = []
     bar = progressbar.ProgressBar(widgets=[' [', progressbar.Timer(), '] ', progressbar.Bar(), ' (', progressbar.ETA(), ') ', ])
-    net.train()
+    net.train
     # stopper = EarlyStop()
     for i in bar(range(150)):
         output = net(J, b)

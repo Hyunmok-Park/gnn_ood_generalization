@@ -32,7 +32,8 @@ class HMC(object):
 
         # wall_hits = 0
         # wall_crosses = 0
-        for i in tqdm(range(1, burn_in + num_sample), leave=False, desc="HMC"):
+        print("HMC")
+        for i in tqdm(range(1, burn_in + num_sample)):
             stop, j = False, -1
 
             # initial velocity/momentum q

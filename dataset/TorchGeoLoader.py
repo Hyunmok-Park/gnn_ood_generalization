@@ -24,7 +24,8 @@ def Torchloader(config, split="train", shuffle=False, parallel=False, master_nod
     if "train" in split or "val" in split:
         batch_size = config.train.batch_size
     else:
-        batch_size = 1
+        batch_size = config.test.batch_size
+        # batch_size = 10
     print(split, batch_size)
 
     # data_path = "/home/ubuntu/pycharm_project_torchgnn/data_temp/grid_0.3"

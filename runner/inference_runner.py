@@ -1133,7 +1133,7 @@ class NeuralInferenceRunner_Meta2(object):
 
     val_structure1 = []
     train_structure1 = []
-    val_structure2= []
+    val_structure2 = []
     train_structure2 = []
     for data1, data2 in tqdm(zip(val_loader1, val_loader2)):
       val_structure1.append([data1['edge_index'], data1['node_idx']])
@@ -1148,7 +1148,7 @@ class NeuralInferenceRunner_Meta2(object):
 
     with open(os.path.join(self.config.save_dir, 'val_structure2.p'), "wb") as f:
       pickle.dump(val_structure2, f)
-      del val_structure1
+      del val_structure2
 
     with open(os.path.join(self.config.save_dir, 'train_structure1.p'), "wb") as f:
       pickle.dump(train_structure1, f)

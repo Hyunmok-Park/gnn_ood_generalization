@@ -500,7 +500,7 @@ class NeuralInferenceRunner_Meta(object):
             updated_node_idx_inv1 = []
             for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch1, new_loss_batch1):
 
-              prob_accept = np.exp((old_loss - new_loss) / temp)
+              prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
               accept = new_loss <= old_loss or np.random.rand() < prob_accept
 
               if accept:
@@ -517,7 +517,7 @@ class NeuralInferenceRunner_Meta(object):
             for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch2,
                                                new_loss_batch2):
 
-              prob_accept = np.exp((old_loss - new_loss) / temp)
+              prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
               accept = new_loss <= old_loss or np.random.rand() < prob_accept
 
               if accept:
@@ -625,7 +625,7 @@ class NeuralInferenceRunner_Meta(object):
         for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch1,
                                            new_loss_batch1):
 
-          prob_accept = np.exp((old_loss - new_loss) / temp)
+          prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
           accept = new_loss <= old_loss or np.random.rand() < prob_accept
           upt_factor = min(0.01, self.SA_running_acc_rate / self.SA_running_factor)
           self.SA_running_factor, self.SA_running_acc_rate = _update_frac_worse_accepts(old_loss, new_loss, upt_factor,
@@ -646,7 +646,7 @@ class NeuralInferenceRunner_Meta(object):
         for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch2,
                                            new_loss_batch2):
 
-          prob_accept = np.exp((old_loss - new_loss) / temp)
+          prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
           accept = new_loss <= old_loss or np.random.rand() < prob_accept
 
           if accept:
@@ -877,8 +877,24 @@ class NeuralInferenceRunner_Meta2(object):
     self.SSL = config.model.SSL
     self.train_pretext = config.model.train_pretext
 
+    self.initial_temp = 0
+    self.min_temp = -100
+    self.temp_change = 1.1
+    self.SA_running_acc_rate = 1e-9
+    self.SA_running_factor = 1e-9
+    self.initial_acc = 0
+    self.temp_slope_opt_steps = self.train_conf.max_epoch
+
   @property
   def train(self):
+
+    def update_frac_worse_accepts(old_loss, new_loss, upt_factor, accept, SA_running_factor, SA_running_acc_rate):
+      if old_loss < new_loss:
+        y = upt_factor if accept else 0
+        SA_running_factor = ((1 - upt_factor) * SA_running_factor + upt_factor)
+        SA_running_acc_rate = ((1 - upt_factor) * SA_running_acc_rate + y)
+      return SA_running_factor, SA_running_acc_rate
+
     def propose_new_sturucture_batch(data):
       def propose_new_sturucture(node_idx, node_idx_inv):
         change_node = (np.random.rand() > 0.5)
@@ -986,7 +1002,17 @@ class NeuralInferenceRunner_Meta2(object):
     iter_count = 0
     best_val_loss = np.inf
     results = defaultdict(list)
+
+    temp = np.exp(self.initial_temp)
+
     for epoch in range(self.train_conf.max_epoch):
+
+      acc_rate = np.exp(self.initial_acc - 5. * epoch / self.temp_slope_opt_steps)
+      if self.SA_running_acc_rate / self.SA_running_factor < acc_rate:
+        temp *= self.temp_change
+      else:
+        temp = max(temp / self.temp_change, self.min_temp)
+
       # ===================== validation ============================ #
       if (epoch + 1) % self.train_conf.valid_epoch == 0 or epoch == 0:
         model.eval()
@@ -1028,38 +1054,50 @@ class NeuralInferenceRunner_Meta2(object):
             updated_node_idx1 = []
             updated_node_idx_inv1 = []
             for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch1, new_loss_batch1):
-              if old_loss > new_loss:
+
+              prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
+              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
+
+              if accept:
                 updated_node_idx1.append(new_node_idx1[idx])
                 updated_node_idx_inv1.append(new_node_idx_inv1[idx])
+                val_loss += [float(new_loss.data.cpu().numpy())]
               else:
                 updated_node_idx1.append(data1['node_idx'][idx])
                 updated_node_idx_inv1.append(data1['node_idx_inv'][idx])
+                val_loss += [float(old_loss.data.cpu().numpy())]
 
             updated_node_idx2 = []
             updated_node_idx_inv2 = []
             for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch2,
                                                new_loss_batch2):
-              if old_loss > new_loss:
+
+              prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
+              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
+
+              if accept:
                 updated_node_idx2.append(new_node_idx1[idx])
                 updated_node_idx_inv2.append(new_node_idx_inv1[idx])
+                val_loss += [float(new_loss.data.cpu().numpy())]
               else:
                 updated_node_idx2.append(data2['node_idx'][idx])
                 updated_node_idx_inv2.append(data2['node_idx_inv'][idx])
+                val_loss += [float(old_loss.data.cpu().numpy())]
 
             data1['node_idx'] = updated_node_idx1
             data2['node_idx'] = updated_node_idx2
             data1['node_idx_inv'] = updated_node_idx_inv1
             data2['node_idx_inv'] = updated_node_idx_inv2
 
-            if loss1 > new_loss1:
-              val_loss += [float(new_loss1.data.cpu().numpy())]
-            else:
-              val_loss += [float(loss1.data.cpu().numpy())]
-
-            if loss2 > new_loss2:
-              val_loss += [float(new_loss2.data.cpu().numpy())]
-            else:
-              val_loss += [float(loss2.data.cpu().numpy())]
+            # if loss1 > new_loss1:
+            #   val_loss += [float(new_loss1.data.cpu().numpy())]
+            # else:
+            #   val_loss += [float(loss1.data.cpu().numpy())]
+            #
+            # if loss2 > new_loss2:
+            #   val_loss += [float(new_loss2.data.cpu().numpy())]
+            # else:
+            #   val_loss += [float(loss2.data.cpu().numpy())]
             # val_loss += [float(loss1.data.cpu().numpy())]
             # val_loss += [float(loss2.data.cpu().numpy())]
 
@@ -1095,6 +1133,7 @@ class NeuralInferenceRunner_Meta2(object):
       lr_scheduler.step()
       for data1, data2 in zip(train_loader1, train_loader2):
         # 0. clears all gradients.
+        loss = 0
         optimizer.zero_grad()
         # if self.use_gpu:
         if "TorchGNN_MsgGNN" not in self.model_conf.name:
@@ -1140,30 +1179,47 @@ class NeuralInferenceRunner_Meta2(object):
         updated_node_idx_inv1 = []
         for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch1,
                                            new_loss_batch1):
-          if old_loss > new_loss:
+
+          prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
+          accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
+          upt_factor = min(0.01, self.SA_running_acc_rate / self.SA_running_factor)
+          self.SA_running_factor, self.SA_running_acc_rate = update_frac_worse_accepts(old_loss.data.cpu().numpy(), new_loss.data.cpu().numpy(), upt_factor, accept, self.SA_running_factor, self.SA_running_acc_rate)
+
+          if accept:
             updated_node_idx1.append(new_node_idx1[idx])
             updated_node_idx_inv1.append(new_node_idx_inv1[idx])
+            loss += new_loss
+
           else:
             updated_node_idx1.append(data1['node_idx'][idx])
             updated_node_idx_inv1.append(data1['node_idx_inv'][idx])
+            loss += old_loss
 
         updated_node_idx2 = []
         updated_node_idx_inv2 = []
         for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch2,
                                            new_loss_batch2):
-          if old_loss > new_loss:
+
+          prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
+          accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
+          upt_factor = min(0.01, self.SA_running_acc_rate / self.SA_running_factor)
+          self.SA_running_factor, self.SA_running_acc_rate = update_frac_worse_accepts(old_loss.data.cpu().numpy(), new_loss.data.cpu().numpy(), upt_factor, accept, self.SA_running_factor, self.SA_running_acc_rate)
+
+          if accept:
             updated_node_idx2.append(new_node_idx1[idx])
             updated_node_idx_inv2.append(new_node_idx_inv1[idx])
+            loss += new_loss
           else:
             updated_node_idx2.append(data2['node_idx'][idx])
             updated_node_idx_inv2.append(data2['node_idx_inv'][idx])
+            loss += old_loss
 
         data1['node_idx'] = updated_node_idx1
         data2['node_idx'] = updated_node_idx2
         data1['node_idx_inv'] = updated_node_idx_inv1
         data2['node_idx_inv'] = updated_node_idx_inv2
 
-        loss = torch.min(loss1, new_loss1) + torch.min(loss2, new_loss2)
+        # loss = torch.min(loss1, new_loss1) + torch.min(loss2, new_loss2)
         # loss = loss1 + loss2
 
         # 3. backward pass (accumulates gradients).

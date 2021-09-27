@@ -1759,17 +1759,10 @@ class NeuralInferenceRunner_Meta3(object):
         # 0. clears all gradients.
         optimizer.zero_grad()
         val_loss = 0
+
         if "TorchGNN_MsgGNN" not in self.model_conf.name:
             data1['idx_msg_edge'] = torch.tensor([0,0]).contiguous().long()
             data2['idx_msg_edge'] = torch.tensor([0,0]).contiguous().long()
-
-        ###############################
-        # DO NOT SEARCH VAL STRUCTURE
-        ###############################
-        # node_idx_inv1 = [0 for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)]
-        # node_idx1 = [[_ for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)], []]
-        # node_idx_inv2 = [1 for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)]
-        # node_idx2 = [[], [_ for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)]]
 
         ########################
         # SEARCH VAL STRUCTURE
@@ -1780,60 +1773,10 @@ class NeuralInferenceRunner_Meta3(object):
         _, loss1, loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'], data1['idx_msg_edge'], target=data1['y'], node_idx=node_idx1, node_idx_inv=node_idx_inv1)
         _, loss2, loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'], data2['idx_msg_edge'], target=data2['y'], node_idx=node_idx2, node_idx_inv=node_idx_inv2)
 
-        new_node_idx1, new_node_idx_inv1 = propose_new_sturucture_batch(data1)
-        new_node_idx2, new_node_idx_inv2 = propose_new_sturucture_batch(data2)
-
-        new_node_idx1_, new_node_idx_inv1_ = node_idx_to_batch(new_node_idx1, new_node_idx_inv1)
-        new_node_idx2_, new_node_idx_inv2_ = node_idx_to_batch(new_node_idx2, new_node_idx_inv2)
-
-        _, new_loss1, new_loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'], data1['idx_msg_edge'],
-                                      target=data1['y'], node_idx=new_node_idx1_, node_idx_inv=new_node_idx_inv1_)
-        _, new_loss2, new_loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'], data2['idx_msg_edge'],
-                                      target=data2['y'], node_idx=new_node_idx2_, node_idx_inv=new_node_idx_inv2_)
-
-        updated_node_idx1 = []
-        updated_node_idx_inv1 = []
-        for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch1, new_loss_batch1):
-
-          if self.temp_update:
-            prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
-            accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
-          else:
-            accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy()
-
-          if accept:
-            updated_node_idx1.append(new_node_idx1[idx])
-            updated_node_idx_inv1.append(new_node_idx_inv1[idx])
-            val_loss += new_loss
-          else:
-            updated_node_idx1.append(data1['node_idx'][idx])
-            updated_node_idx_inv1.append(data1['node_idx_inv'][idx])
-            val_loss += old_loss
-
-        updated_node_idx2 = []
-        updated_node_idx_inv2 = []
-        for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch2,
-                                           new_loss_batch2):
-
-          if self.temp_update:
-            prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
-            accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
-          else:
-            accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy()
-
-          if accept:
-            updated_node_idx2.append(new_node_idx1[idx])
-            updated_node_idx_inv2.append(new_node_idx_inv1[idx])
-            val_loss += new_loss
-          else:
-            updated_node_idx2.append(data2['node_idx'][idx])
-            updated_node_idx_inv2.append(data2['node_idx_inv'][idx])
-            val_loss += old_loss
-
-        data1['node_idx'] = updated_node_idx1
-        data2['node_idx'] = updated_node_idx2
-        data1['node_idx_inv'] = updated_node_idx_inv1
-        data2['node_idx_inv'] = updated_node_idx_inv2
+        for idx, old_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch1):
+          val_loss+=old_loss
+        for idx, old_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch2):
+          val_loss+=old_loss
 
         val_loss.backward()
         optimizer.step()
@@ -1842,6 +1785,7 @@ class NeuralInferenceRunner_Meta3(object):
       mean_loss = np.mean(val_loss_list)
       logger.info("Avg. Validation Loss = {} +- {}, {} epoch".format(mean_loss, 0, epoch))
       self.writer.add_scalar('val_loss', mean_loss, iter_count)
+      results['val_loss']+=[mean_loss]
 
       # save best model
       if mean_loss < best_val_loss:
@@ -1855,19 +1799,10 @@ class NeuralInferenceRunner_Meta3(object):
 
       logger.info("Current Best Validation Loss = {}".format(best_val_loss))
 
-
       # ====================== training ============================= #
       model.eval()
-      for data1, data2 in zip(train_loader1, train_loader2):
+      for ii1, [data1, data2] in enumerate(zip(train_loader1, train_loader2)):
         loss = 0
-        ###############################
-        # DO NOT SEARCH TRAIN STRUCTURE
-        ###############################
-        # node_idx_inv1 = [0 for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)]
-        # node_idx1 = [[_ for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)], []]
-        # node_idx_inv2 = [1 for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)]
-        # node_idx2 = [[], [_ for _ in range(self.dataset_conf.num_node * self.train_conf.batch_size)]]
-
         ########################
         # SEARCH TRAIN STRUCTURE
         ########################
@@ -1876,79 +1811,87 @@ class NeuralInferenceRunner_Meta3(object):
             data1['idx_msg_edge'] = torch.tensor([0, 0]).contiguous().long()
             data2['idx_msg_edge'] = torch.tensor([0, 0]).contiguous().long()
 
-          node_idx1, node_idx_inv1 = node_idx_to_batch(data1['node_idx'], data1['node_idx_inv'])
-          node_idx2, node_idx_inv2 = node_idx_to_batch(data2['node_idx'], data2['node_idx_inv'])
+          ##############################
+          # LOAD STRUCTURE FROM VAL DATA
+          ##############################
 
-          _, loss1, loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'], data1['idx_msg_edge'], target=data1['y'], node_idx=node_idx1, node_idx_inv=node_idx_inv1)
-          _, loss2, loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'], data2['idx_msg_edge'], target=data2['y'], node_idx=node_idx2, node_idx_inv=node_idx_inv2)
+          for ii2, [data1_val, data2_val] in enumerate(zip(val_loader1, val_loader2)):
+            if ii2 == ii1 % 20:
+              node_idx1, node_idx_inv1 = node_idx_to_batch(data1_val['node_idx'], data1_val['node_idx_inv'])
+              node_idx2, node_idx_inv2 = node_idx_to_batch(data2_val['node_idx'], data2_val['node_idx_inv'])
 
-          new_node_idx1, new_node_idx_inv1 = propose_new_sturucture_batch(data1)
-          new_node_idx2, new_node_idx_inv2 = propose_new_sturucture_batch(data2)
+              _, loss1, loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'], data1['idx_msg_edge'], target=data1['y'], node_idx=node_idx1, node_idx_inv=node_idx_inv1)
+              _, loss2, loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'], data2['idx_msg_edge'], target=data2['y'], node_idx=node_idx2, node_idx_inv=node_idx_inv2)
 
-          new_node_idx1_, new_node_idx_inv1_ = node_idx_to_batch(new_node_idx1, new_node_idx_inv1)
-          new_node_idx2_, new_node_idx_inv2_ = node_idx_to_batch(new_node_idx2, new_node_idx_inv2)
+              new_node_idx1, new_node_idx_inv1 = propose_new_sturucture_batch(data1_val)
+              new_node_idx2, new_node_idx_inv2 = propose_new_sturucture_batch(data2_val)
 
-          _, new_loss1, new_loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'],
-                                                data1['idx_msg_edge'],
-                                                target=data1['y'], node_idx=new_node_idx1_,
-                                                node_idx_inv=new_node_idx_inv1_)
-          _, new_loss2, new_loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'],
-                                                data2['idx_msg_edge'],
-                                                target=data2['y'], node_idx=new_node_idx2_,
-                                                node_idx_inv=new_node_idx_inv2_)
+              new_node_idx1_, new_node_idx_inv1_ = node_idx_to_batch(new_node_idx1, new_node_idx_inv1)
+              new_node_idx2_, new_node_idx_inv2_ = node_idx_to_batch(new_node_idx2, new_node_idx_inv2)
 
-          updated_node_idx1 = []
-          updated_node_idx_inv1 = []
-          for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch1,
-                                             new_loss_batch1):
-            if self.temp_update:
-              prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
-              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
-              upt_factor = min(0.01, self.SA_running_acc_rate / self.SA_running_factor)
-              self.SA_running_factor, self.SA_running_acc_rate = update_frac_worse_accepts(old_loss.data.cpu().numpy(), new_loss.data.cpu().numpy(), upt_factor, accept, self.SA_running_factor, self.SA_running_acc_rate)
+              _, new_loss1, new_loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'],
+                                                    data1['idx_msg_edge'],
+                                                    target=data1['y'], node_idx=new_node_idx1_,
+                                                    node_idx_inv=new_node_idx_inv1_)
+              _, new_loss2, new_loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'],
+                                                    data2['idx_msg_edge'],
+                                                    target=data2['y'], node_idx=new_node_idx2_,
+                                                    node_idx_inv=new_node_idx_inv2_)
+
+              updated_node_idx1 = []
+              updated_node_idx_inv1 = []
+              for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch1,
+                                                 new_loss_batch1):
+                if self.temp_update:
+                  prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
+                  accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
+                  upt_factor = min(0.01, self.SA_running_acc_rate / self.SA_running_factor)
+                  self.SA_running_factor, self.SA_running_acc_rate = update_frac_worse_accepts(old_loss.data.cpu().numpy(), new_loss.data.cpu().numpy(), upt_factor, accept, self.SA_running_factor, self.SA_running_acc_rate)
+                else:
+                  accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy()
+
+                if accept:
+                  updated_node_idx1.append(new_node_idx1[idx])
+                  updated_node_idx_inv1.append(new_node_idx_inv1[idx])
+                  loss += new_loss
+
+                else:
+                  updated_node_idx1.append(data1_val['node_idx'][idx])
+                  updated_node_idx_inv1.append(data1_val['node_idx_inv'][idx])
+                  loss += old_loss
+
+              updated_node_idx2 = []
+              updated_node_idx_inv2 = []
+              for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch2,
+                                                 new_loss_batch2):
+
+                if self.temp_update:
+                  prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
+                  accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
+                  upt_factor = min(0.01, self.SA_running_acc_rate / self.SA_running_factor)
+                  self.SA_running_factor, self.SA_running_acc_rate = update_frac_worse_accepts(old_loss.data.cpu().numpy(),
+                                                                                               new_loss.data.cpu().numpy(),
+                                                                                               upt_factor, accept,
+                                                                                               self.SA_running_factor,
+                                                                                               self.SA_running_acc_rate)
+                else:
+                  accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy()
+
+                if accept:
+                  updated_node_idx2.append(new_node_idx1[idx])
+                  updated_node_idx_inv2.append(new_node_idx_inv1[idx])
+                  loss += new_loss
+                else:
+                  updated_node_idx2.append(data2_val['node_idx'][idx])
+                  updated_node_idx_inv2.append(data2_val['node_idx_inv'][idx])
+                  loss += old_loss
+
+              data1_val['node_idx'] = updated_node_idx1
+              data2_val['node_idx'] = updated_node_idx2
+              data1_val['node_idx_inv'] = updated_node_idx_inv1
+              data2_val['node_idx_inv'] = updated_node_idx_inv2
             else:
-              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy()
-
-            if accept:
-              updated_node_idx1.append(new_node_idx1[idx])
-              updated_node_idx_inv1.append(new_node_idx_inv1[idx])
-              loss += new_loss
-
-            else:
-              updated_node_idx1.append(data1['node_idx'][idx])
-              updated_node_idx_inv1.append(data1['node_idx_inv'][idx])
-              loss += old_loss
-
-          updated_node_idx2 = []
-          updated_node_idx_inv2 = []
-          for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch2,
-                                             new_loss_batch2):
-
-            if self.temp_update:
-              prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
-              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
-              upt_factor = min(0.01, self.SA_running_acc_rate / self.SA_running_factor)
-              self.SA_running_factor, self.SA_running_acc_rate = update_frac_worse_accepts(old_loss.data.cpu().numpy(),
-                                                                                           new_loss.data.cpu().numpy(),
-                                                                                           upt_factor, accept,
-                                                                                           self.SA_running_factor,
-                                                                                           self.SA_running_acc_rate)
-            else:
-              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy()
-
-            if accept:
-              updated_node_idx2.append(new_node_idx1[idx])
-              updated_node_idx_inv2.append(new_node_idx_inv1[idx])
-              loss += new_loss
-            else:
-              updated_node_idx2.append(data2['node_idx'][idx])
-              updated_node_idx_inv2.append(data2['node_idx_inv'][idx])
-              loss += old_loss
-
-          data1['node_idx'] = updated_node_idx1
-          data2['node_idx'] = updated_node_idx2
-          data1['node_idx_inv'] = updated_node_idx_inv1
-          data2['node_idx_inv'] = updated_node_idx_inv2
+              continue
 
         train_loss = float(loss.data.cpu().numpy())
         results['train_loss'] += [train_loss]

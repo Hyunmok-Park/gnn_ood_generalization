@@ -13,7 +13,7 @@ from utils.data_helper import DataListLoader, DataLoader
 from collections import Counter
 import random
 
-def Torchloader(config, split="train", shuffle=False, parallel=False, master_node=False):
+def Torchloader(config, split="train", shuffle=False, parallel=False, master_node=False, edge_module=False):
     tik = time.time()
     npr = np.random.RandomState(seed=config.seed)
     data_list = []
@@ -48,6 +48,13 @@ def Torchloader(config, split="train", shuffle=False, parallel=False, master_nod
         node_idx = [[], []]
         for idx, i in enumerate(node_idx_inv):
             node_idx[i].append(idx)
+
+        edge_idx = [[], []]
+        edge_idx_inv = []
+        if edge_module:
+            edge_idx_inv = [random.choice([0, 1]) for i in range(edge_index.size(1))]
+            for idx, i in enumerate(edge_idx_inv):
+                edge_idx[i].append(idx)
 
         #################
         # D-Pattern
@@ -182,7 +189,7 @@ def Torchloader(config, split="train", shuffle=False, parallel=False, master_nod
         else:
             # data = Data(x=b, edge_index=edge_index, edge_attr=edge_attr, y=y, degree=degree, J=J)
             # data = Data(x=b, edge_index=edge_index, edge_attr=edge_attr, y=y, degree=pattern_list)#, pattern=pattern_list)
-            data = Data(x=b, edge_index=edge_index, edge_attr=edge_attr, y=y, J=J, node_idx = node_idx, node_idx_inv=node_idx_inv)#, pattern=pattern_list)
+            data = Data(x=b, edge_index=edge_index, edge_attr=edge_attr, y=y, J=J, node_idx = node_idx, node_idx_inv=node_idx_inv, edge_idx=edge_idx, edge_idx_inv=edge_idx_inv)#, pattern=pattern_list)
         data_list.append(data)
         name_list.append(name)
 

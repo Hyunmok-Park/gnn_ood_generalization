@@ -29,7 +29,7 @@ import shutil
 
 logger = get_logger('exp_logger')
 EPS = float(np.finfo(np.float32).eps)
-__all__ = ['NeuralInferenceRunner', 'NeuralInferenceRunner_Meta', 'NeuralInferenceRunner_Meta2', 'NeuralInferenceRunner_Meta3', 'AlgorithmicInferenceRunner_bp', 'AlgorithmicInferenceRunner', 'NeuralInferenceRunner_MT']
+__all__ = ['NeuralInferenceRunner', 'NeuralInferenceRunner_Meta', 'NeuralInferenceRunner_Meta2', 'NeuralInferenceRunner_Meta3', 'NeuralInferenceRunner_Meta4', 'AlgorithmicInferenceRunner_bp', 'AlgorithmicInferenceRunner', 'NeuralInferenceRunner_MT']
 
 class NeuralInferenceRunner(object):
   def __init__(self, config):
@@ -1636,7 +1636,8 @@ class NeuralInferenceRunner_Meta3(object):
 
     def propose_new_sturucture_batch(data):
       def propose_new_sturucture(node_idx, node_idx_inv):
-        change_node = (np.random.rand() > 0.5)
+        # change_node = (np.random.rand() > 0.5)
+        change_node = True
         if change_node:
           idx = -1
           while idx == -1 or node_idx_inv[idx] >= 2:
@@ -1878,8 +1879,8 @@ class NeuralInferenceRunner_Meta3(object):
                   accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy()
 
                 if accept:
-                  updated_node_idx2.append(new_node_idx1[idx])
-                  updated_node_idx_inv2.append(new_node_idx_inv1[idx])
+                  updated_node_idx2.append(new_node_idx2[idx])
+                  updated_node_idx_inv2.append(new_node_idx_inv2[idx])
                   loss += new_loss
                 else:
                   updated_node_idx2.append(data2_val['node_idx'][idx])
@@ -1966,7 +1967,8 @@ class NeuralInferenceRunner_Meta3(object):
 
     def propose_new_sturucture_batch(data):
       def propose_new_sturucture(node_idx, node_idx_inv):
-        change_node = (np.random.rand() > 0.5)
+        # change_node = (np.random.rand() > 0.5)
+        change_node = True
         if change_node:
           idx = -1
           while idx == -1 or node_idx_inv[idx] >= 2:
@@ -2148,6 +2150,699 @@ class NeuralInferenceRunner_Meta3(object):
     file_name = os.path.join(self.config.save_dir, "sturucture_info.p")
     with open(file_name, 'wb') as f:
       pickle.dump(structure_info, f)
+
+    file_name = os.path.join(self.config.save_dir, "state_hist.p")
+    with open(file_name, 'wb') as f:
+      pickle.dump(state_hist, f)
+
+    return test_loss
+
+class NeuralInferenceRunner_Meta4(object):
+  def __init__(self, config, config2):
+    self.config = config
+    self.dataset_conf = config.dataset
+
+    self.config2 = config2
+    self.dataset_conf2 = config2.dataset
+
+    self.model_conf = config.model
+    self.train_conf = config.train
+    self.test_conf = config.test
+    self.use_gpu = config.use_gpu
+    self.gpus = config.gpus
+    self.writer = SummaryWriter(config.save_dir)
+    self.shuffle = config.train.shuffle
+    self.parallel = config.model.name == "TorchGNN_MsgGNN_parallel"
+    self.master_node = config.model.master_node if config.model.master_node is not None else False
+    self.SSL = config.model.SSL
+    self.train_pretext = config.model.train_pretext
+
+    self.initial_temp = 0
+    self.min_temp = -100
+    self.temp_change = 1.1
+    self.SA_running_acc_rate = 1e-9
+    self.SA_running_factor = 1e-9
+    self.initial_acc = 0
+    self.temp_slope_opt_steps = self.train_conf.max_epoch
+    self.temp_update = self.model_conf.temp
+
+  @property
+  def train(self):
+    def update_frac_worse_accepts(old_loss, new_loss, upt_factor, accept, SA_running_factor, SA_running_acc_rate):
+      if old_loss < new_loss:
+        y = upt_factor if accept else 0
+        SA_running_factor = ((1 - upt_factor) * SA_running_factor + upt_factor)
+        SA_running_acc_rate = ((1 - upt_factor) * SA_running_acc_rate + y)
+      return SA_running_factor, SA_running_acc_rate
+
+    def propose_new_sturucture_batch(data):
+      def propose_new_sturucture(node_idx, node_idx_inv):
+        # change_node = (np.random.rand() > 0.5)
+        change_node = True
+        if change_node:
+          idx = -1
+          while idx == -1 or node_idx_inv[idx] >= 2:
+            idx = np.random.randint(len(node_idx_inv))
+          # Remove from old
+          old_module = node_idx_inv[idx]
+          pos_in_old = node_idx[old_module].index(idx)
+          del node_idx[old_module][pos_in_old]
+          # Add to new
+          new_module = old_module
+          while new_module == old_module:
+            new_module = np.random.randint(2)
+          node_idx_inv[idx] = new_module
+          node_idx[new_module].append(idx)
+        return node_idx, node_idx_inv
+
+      def propose_new_sturucture_edge(edge_idx, edge_idx_inv):
+        change_edge = (np.random.rand() > 0.5)
+        change_edge = True
+        if change_edge:
+          idx = -1
+          while idx == -1 or edge_idx_inv[idx] >= 2:
+            idx = np.random.randint(len(edge_idx_inv))
+          # Remove from old
+          old_module = edge_idx_inv[idx]
+          pos_in_old = edge_idx[old_module].index(idx)
+          del edge_idx[old_module][pos_in_old]
+          # Add to new
+          new_module = old_module
+          while new_module == old_module:
+            new_module = np.random.randint(2)
+          edge_idx_inv[idx] = new_module
+          edge_idx[new_module].append(idx)
+        return edge_idx, edge_idx_inv
+
+      new_node_idx = []
+      new_node_idx_inv = []
+      new_edge_idx = []
+      new_edge_idx_inv = []
+
+      for node_idx_batch, node_idx_inv_batch in zip(data['node_idx'], data['node_idx_inv']):
+        new_node_idx_batch, new_node_idx_inv_batch = propose_new_sturucture(node_idx_batch, node_idx_inv_batch)
+        new_node_idx.append(new_node_idx_batch)
+        new_node_idx_inv.append(new_node_idx_inv_batch)
+
+      for edge_idx_batch, edge_idx_inv_batch in zip(data['edge_idx'], data['edge_idx_inv']):
+        new_edge_idx_batch, new_edge_idx_inv_batch = propose_new_sturucture_edge(edge_idx_batch, edge_idx_inv_batch)
+        new_edge_idx.append(new_edge_idx_batch)
+        new_edge_idx_inv.append(new_edge_idx_inv_batch)
+
+      return new_node_idx, new_node_idx_inv, new_edge_idx, new_edge_idx_inv
+
+    def node_idx_to_batch(node_idx, node_idx_inv):
+      batched_node_idx = [[], []]
+      for i_batch, _ in enumerate(node_idx):
+        batched_node_idx[0] += [__ + i_batch * self.dataset_conf.num_node for __ in _[0]]
+        batched_node_idx[1] += [__ + i_batch * self.dataset_conf.num_node for __ in _[1]]
+      batched_node_idx_inv = []
+      for _ in node_idx_inv:
+        batched_node_idx_inv += _
+      return batched_node_idx, batched_node_idx_inv
+
+    def edge_idx_to_batch(edge_idx, edge_idx_inv):
+      batched_edge_idx = [[], []]
+      num_edge_before = 0
+      for idx, idx_inv in zip(edge_idx, edge_idx_inv):
+        batched_edge_idx[0] += [__ + num_edge_before for __ in idx[0]]
+        batched_edge_idx[1] += [__ + num_edge_before for __ in idx[1]]
+
+        num_edge_before += len(idx_inv)
+
+      batched_edge_idx_inv = []
+      for _ in edge_idx_inv:
+        batched_edge_idx_inv += _
+
+      return batched_edge_idx, batched_edge_idx_inv
+
+
+    train_begin_time = time.time()
+    # create data loader
+    torch.cuda.empty_cache()
+    train_loader1, _ = eval(self.dataset_conf.loader_name)(self.config, split='train', shuffle=self.shuffle, parallel=self.parallel, master_node=self.master_node, edge_module=True)
+    train_loader2, _ = eval(self.dataset_conf2.loader_name)(self.config2, split='train', shuffle=self.shuffle,parallel=self.parallel, master_node=self.master_node, edge_module=True)
+    val_loader1, _ = eval(self.dataset_conf.loader_name)(self.config, split='val', shuffle=self.shuffle, parallel=self.parallel, master_node=self.master_node, edge_module=True)
+    val_loader2, _ = eval(self.dataset_conf2.loader_name)(self.config2, split='val', shuffle=self.shuffle,parallel=self.parallel, master_node=self.master_node, edge_module=True)
+
+    # create models
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    model = eval(self.model_conf.name)(self.config)
+
+    # fix parameter(pretext)
+    if self.SSL and not self.train_pretext:
+      print("Fixing parameter")
+      for name, param in model.named_parameters():
+        if "output_func" not in name:
+          param.requires_grad = False
+        if "pretext_output_func" in name:
+          param.requires_grad = True
+
+    if self.use_gpu:
+      if self.parallel:
+        print("Using GPU dataparallel")
+        print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
+        model = DataParallel(model)
+      else:
+        print("Using single GPU")
+        model = nn.DataParallel(model, device_ids=self.gpus)
+        # model = DataParallel(model)
+    model.to(device)
+    print(model)
+
+    # create optimizer
+    params = filter(lambda p: p.requires_grad, model.parameters())
+    if self.train_conf.optimizer == 'SGD':
+      optimizer = optim.SGD(
+        params,
+        lr=self.train_conf.lr,
+        momentum=self.train_conf.momentum,
+        weight_decay=self.train_conf.wd)
+    elif self.train_conf.optimizer == 'Adam':
+        optimizer = optim.Adam(
+          params,
+          lr=self.train_conf.lr,
+          weight_decay=self.train_conf.wd)
+    else:
+      raise ValueError("Non-supported optimizer!")
+
+    early_stop = EarlyStopper([0.0], win_size=10, is_decrease=False)
+
+    lr_scheduler = optim.lr_scheduler.MultiStepLR(
+      optimizer,
+      milestones=self.train_conf.lr_decay_steps,
+      gamma=self.train_conf.lr_decay)
+
+    # reset gradient
+    optimizer.zero_grad()
+
+    # resume training
+    if self.train_conf.is_resume:
+      load_model(model, self.config.train.resume_model, optimizer=optimizer, train_pretext=self.train_pretext)
+
+    #========================= Training Loop =============================#
+    iter_count = 0
+    best_val_loss = np.inf
+    results = defaultdict(list)
+    temp = np.exp(self.initial_temp)
+
+    for epoch in range(self.train_conf.max_epoch):
+      if self.temp_update:
+        acc_rate = np.exp(self.initial_acc - 5. * epoch / self.temp_slope_opt_steps)
+        if self.SA_running_acc_rate / self.SA_running_factor < acc_rate:
+          temp *= self.temp_change
+        else:
+          temp = max(temp / self.temp_change, self.min_temp)
+
+      model.train()
+      lr_scheduler.step()
+      val_loss_list = []
+      # ===================== validation ============================ #
+      for data1, data2 in tqdm(zip(val_loader1, val_loader2)):
+        # 0. clears all gradients.
+        optimizer.zero_grad()
+        val_loss = 0
+
+        if "TorchGNN_MsgGNN" not in self.model_conf.name:
+            data1['idx_msg_edge'] = torch.tensor([0,0]).contiguous().long()
+            data2['idx_msg_edge'] = torch.tensor([0,0]).contiguous().long()
+
+        ########################
+        # SEARCH VAL STRUCTURE
+        ########################
+        node_idx1, node_idx_inv1 = node_idx_to_batch(data1['node_idx'], data1['node_idx_inv'])
+        node_idx2, node_idx_inv2 = node_idx_to_batch(data2['node_idx'], data2['node_idx_inv'])
+
+        edge_idx1, edge_idx_inv1 = edge_idx_to_batch(data1['edge_idx'], data1['edge_idx_inv'])
+        edge_idx2, edge_idx_inv2 = edge_idx_to_batch(data2['edge_idx'], data2['edge_idx_inv'])
+
+        _, loss1, loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'], data1['idx_msg_edge'], target=data1['y'], node_idx=node_idx1, node_idx_inv=node_idx_inv1, edge_idx=edge_idx1, edge_idx_inv=edge_idx_inv1)
+        _, loss2, loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'], data2['idx_msg_edge'], target=data2['y'], node_idx=node_idx2, node_idx_inv=node_idx_inv2, edge_idx=edge_idx2, edge_idx_inv=edge_idx_inv2)
+
+        for idx, old_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch1):
+          val_loss+=old_loss
+        for idx, old_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch2):
+          val_loss+=old_loss
+
+        val_loss.backward()
+        optimizer.step()
+        val_loss_list.append(val_loss.data.cpu().numpy())
+
+      mean_loss = np.mean(val_loss_list)
+      logger.info("Avg. Validation Loss = {} +- {}, {} epoch".format(mean_loss, 0, epoch))
+      self.writer.add_scalar('val_loss', mean_loss, iter_count)
+      results['val_loss']+=[mean_loss]
+
+      # save best model
+      if mean_loss < best_val_loss:
+        best_val_loss = mean_loss
+        snapshot(
+          model.module if self.use_gpu else model,
+          optimizer,
+          self.config,
+          epoch + 1,
+          tag="best")
+
+      logger.info("Current Best Validation Loss = {}".format(best_val_loss))
+
+      # ====================== training ============================= #
+      model.eval()
+      for ii1, [data1, data2, data1_val, data2_val] in enumerate(zip(train_loader1, train_loader2, val_loader1, val_loader2)):
+        loss = 0
+        ########################
+        # SEARCH TRAIN STRUCTURE
+        ########################
+        with torch.no_grad():
+          if "TorchGNN_MsgGNN" not in self.model_conf.name:
+            data1['idx_msg_edge'] = torch.tensor([0, 0]).contiguous().long()
+            data2['idx_msg_edge'] = torch.tensor([0, 0]).contiguous().long()
+
+          ##############################
+          # LOAD STRUCTURE FROM VAL DATA
+          ##############################
+          node_idx1, node_idx_inv1 = node_idx_to_batch(data1_val['node_idx'], data1_val['node_idx_inv'])
+          node_idx2, node_idx_inv2 = node_idx_to_batch(data2_val['node_idx'], data2_val['node_idx_inv'])
+
+          edge_idx1, edge_idx_inv1 = edge_idx_to_batch(data1['edge_idx'], data1['edge_idx_inv'])
+          edge_idx2, edge_idx_inv2 = edge_idx_to_batch(data2['edge_idx'], data2['edge_idx_inv'])
+
+          _, loss1, loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'], data1['idx_msg_edge'], target=data1['y'], node_idx=node_idx1, node_idx_inv=node_idx_inv1, edge_idx=edge_idx1, edge_idx_inv=edge_idx_inv1)
+          _, loss2, loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'], data2['idx_msg_edge'], target=data2['y'], node_idx=node_idx2, node_idx_inv=node_idx_inv2, edge_idx=edge_idx2, edge_idx_inv=edge_idx_inv2)
+
+          ######################
+          # PROPOSE NEW STRUCTURE
+          ######################
+          new_node_idx1, new_node_idx_inv1, new_edge_idx1, new_edge_idx_inv1 = propose_new_sturucture_batch(data1_val)
+          new_node_idx2, new_node_idx_inv2, new_edge_idx2, new_edge_idx_inv2 = propose_new_sturucture_batch(data2_val)
+
+          new_node_idx1_, new_node_idx_inv1_ = node_idx_to_batch(new_node_idx1, new_node_idx_inv1)
+          new_node_idx2_, new_node_idx_inv2_ = node_idx_to_batch(new_node_idx2, new_node_idx_inv2)
+
+          new_edge_idx1_, new_edge_idx_inv1_ = edge_idx_to_batch(new_edge_idx1, new_edge_idx_inv1)
+          new_edge_idx2_, new_edge_idx_inv2_ = edge_idx_to_batch(new_edge_idx2, new_edge_idx_inv2)
+
+          _, new_loss1, new_loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'],
+                                                data1['idx_msg_edge'],
+                                                target=data1['y'], node_idx=new_node_idx1_,
+                                                node_idx_inv=new_node_idx_inv1_, edge_idx=new_edge_idx1_, edge_idx_inv=new_edge_idx_inv1_)
+          _, new_loss2, new_loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'],
+                                                data2['idx_msg_edge'],
+                                                target=data2['y'], node_idx=new_node_idx2_,
+                                                node_idx_inv=new_node_idx_inv2_, edge_idx=new_edge_idx2_, edge_idx_inv=new_edge_idx_inv2_)
+
+          updated_node_idx1 = []
+          updated_node_idx_inv1 = []
+          updated_edge_idx1 = []
+          updated_edge_idx_inv1 = []
+          for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch1,
+                                             new_loss_batch1):
+            if self.temp_update:
+              prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
+              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
+              upt_factor = min(0.01, self.SA_running_acc_rate / self.SA_running_factor)
+              self.SA_running_factor, self.SA_running_acc_rate = update_frac_worse_accepts(old_loss.data.cpu().numpy(), new_loss.data.cpu().numpy(), upt_factor, accept, self.SA_running_factor, self.SA_running_acc_rate)
+            else:
+              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy()
+
+            if accept:
+              updated_node_idx1.append(new_node_idx1[idx])
+              updated_node_idx_inv1.append(new_node_idx_inv1[idx])
+              updated_edge_idx1.append(new_edge_idx1[idx])
+              updated_edge_idx_inv1.append(new_edge_idx_inv1[idx])
+              loss += new_loss
+
+            else:
+              updated_node_idx1.append(data1_val['node_idx'][idx])
+              updated_node_idx_inv1.append(data1_val['node_idx_inv'][idx])
+              updated_edge_idx1.append(data1_val['edge_idx'][idx])
+              updated_edge_idx_inv1.append(data1_val['edge_idx_inv'][idx])
+              loss += old_loss
+
+          updated_node_idx2 = []
+          updated_node_idx_inv2 = []
+          updated_edge_idx2 = []
+          updated_edge_idx_inv2 = []
+          for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch2,
+                                             new_loss_batch2):
+
+            if self.temp_update:
+              prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
+              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
+              upt_factor = min(0.01, self.SA_running_acc_rate / self.SA_running_factor)
+              self.SA_running_factor, self.SA_running_acc_rate = update_frac_worse_accepts(old_loss.data.cpu().numpy(),
+                                                                                           new_loss.data.cpu().numpy(),
+                                                                                           upt_factor, accept,
+                                                                                           self.SA_running_factor,
+                                                                                           self.SA_running_acc_rate)
+            else:
+              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy()
+
+            if accept:
+              updated_node_idx2.append(new_node_idx2[idx])
+              updated_node_idx_inv2.append(new_node_idx_inv2[idx])
+              updated_edge_idx2.append(new_edge_idx2[idx])
+              updated_edge_idx_inv2.append(new_edge_idx_inv2[idx])
+              loss += new_loss
+            else:
+              updated_node_idx2.append(data2_val['node_idx'][idx])
+              updated_node_idx_inv2.append(data2_val['node_idx_inv'][idx])
+              updated_edge_idx2.append(data2_val['edge_idx'][idx])
+              updated_edge_idx_inv2.append(data2_val['edge_idx_inv'][idx])
+              loss += old_loss
+
+          data1_val['node_idx'] = updated_node_idx1
+          data2_val['node_idx'] = updated_node_idx2
+          data1_val['node_idx_inv'] = updated_node_idx_inv1
+          data2_val['node_idx_inv'] = updated_node_idx_inv2
+
+          data1_val['edge_idx'] = updated_edge_idx1
+          data2_val['edge_idx'] = updated_edge_idx2
+          data1_val['edge_idx_inv'] = updated_edge_idx_inv1
+          data2_val['edge_idx_inv'] = updated_edge_idx_inv2
+
+        train_loss = float(loss.data.cpu().numpy())
+        results['train_loss'] += [train_loss]
+        results['train_step'] += [iter_count]
+        self.writer.add_scalar('train_loss', train_loss, iter_count)
+
+        # display loss
+        if (iter_count + 1) % self.train_conf.display_iter == 0:
+          logger.info("Train Loss @ epoch {:04d} iteration {:08d} = {}".format(epoch + 1, iter_count + 1, train_loss))
+
+        iter_count += 1
+
+      # snapshot model
+      if (epoch + 1) % self.train_conf.snapshot_epoch == 0:
+        logger.info("Saving Snapshot @ epoch {:04d}".format(epoch + 1))
+        snapshot(model.module if self.use_gpu else model, optimizer, self.config, epoch + 1)
+
+    val_structure1 = []
+    train_structure1 = []
+    val_structure2 = []
+    train_structure2 = []
+
+    val_structure1_edge = []
+    train_structure1_edge = []
+    val_structure2_edge = []
+    train_structure2_edge = []
+    for data1, data2 in tqdm(zip(val_loader1, val_loader2)):
+      val_structure1.append([data1['edge_index'], data1['node_idx']])
+      val_structure2.append([data2['edge_index'], data2['node_idx']])
+      val_structure1_edge.append([data1['edge_index'], data1['edge_idx']])
+      val_structure2_edge.append([data2['edge_index'], data2['edge_idx']])
+    for data1, data2 in zip(train_loader1, train_loader2):
+      train_structure1.append([data1['edge_index'], data1['node_idx']])
+      train_structure2.append([data2['edge_index'], data2['node_idx']])
+      train_structure1_edge.append([data1['edge_index'], data1['edge_idx']])
+      train_structure2_edge.append([data2['edge_index'], data2['edge_idx']])
+
+    with open(os.path.join(self.config.save_dir, 'val_structure1.p'), "wb") as f:
+      pickle.dump(val_structure1, f)
+      del val_structure1
+
+    with open(os.path.join(self.config.save_dir, 'val_structure2.p'), "wb") as f:
+      pickle.dump(val_structure2, f)
+      del val_structure2
+
+    with open(os.path.join(self.config.save_dir, 'val_structure1_edge.p'), "wb") as f:
+      pickle.dump(val_structure1_edge, f)
+      del val_structure1_edge
+
+    with open(os.path.join(self.config.save_dir, 'val_structure2_edge.p'), "wb") as f:
+      pickle.dump(val_structure2_edge, f)
+      del val_structure2_edge
+
+    with open(os.path.join(self.config.save_dir, 'train_structure1.p'), "wb") as f:
+      pickle.dump(train_structure1, f)
+      del train_structure1
+
+    with open(os.path.join(self.config.save_dir, 'train_structure2.p'), "wb") as f:
+      pickle.dump(train_structure2, f)
+      del train_structure2
+
+    with open(os.path.join(self.config.save_dir, 'train_structure1_edge.p'), "wb") as f:
+      pickle.dump(train_structure1_edge, f)
+      del train_structure1_edge
+
+    with open(os.path.join(self.config.save_dir, 'train_structure2_edge.p'), "wb") as f:
+      pickle.dump(train_structure2_edge, f)
+      del train_structure2_edge
+
+
+    print(np.array(results['hidden_state']).shape)
+    results['best_val_loss'] += [best_val_loss]
+    train_end_time = time.time()
+    results['total_time'] = train_end_time-train_begin_time
+    pickle.dump(results, open(os.path.join(self.config.save_dir, 'train_stats.p'), 'wb'))
+    self.writer.close()
+    logger.info("Best Validation Loss = {}".format(best_val_loss))
+
+    return best_val_loss
+
+  def test(self):
+
+    self.initial_temp = 0
+    self.min_temp = -100
+    self.temp_change = 1.1
+    self.SA_running_acc_rate = 1e-9
+    self.SA_running_factor = 1e-9
+    self.initial_acc = 0
+    self.temp_slope_opt_steps = 500
+
+    def update_frac_worse_accepts(old_loss, new_loss, upt_factor, accept, SA_running_factor, SA_running_acc_rate):
+      if old_loss < new_loss:
+        y = upt_factor if accept else 0
+        SA_running_factor = ((1 - upt_factor) * SA_running_factor + upt_factor)
+        SA_running_acc_rate = ((1 - upt_factor) * SA_running_acc_rate + y)
+      return SA_running_factor, SA_running_acc_rate
+
+    def propose_new_sturucture_batch(data):
+      def propose_new_sturucture(node_idx, node_idx_inv):
+        # change_node = (np.random.rand() > 0.5)
+        change_node = True
+        if change_node:
+          idx = -1
+          while idx == -1 or node_idx_inv[idx] >= 2:
+            idx = np.random.randint(len(node_idx_inv))
+          # Remove from old
+          old_module = node_idx_inv[idx]
+          pos_in_old = node_idx[old_module].index(idx)
+          del node_idx[old_module][pos_in_old]
+          # Add to new
+          new_module = old_module
+          while new_module == old_module:
+            new_module = np.random.randint(2)
+          node_idx_inv[idx] = new_module
+          node_idx[new_module].append(idx)
+        return node_idx, node_idx_inv
+
+      def propose_new_sturucture_edge(edge_idx, edge_idx_inv):
+        change_edge = (np.random.rand() > 0.5)
+        change_edge = True
+        if change_edge:
+          idx = -1
+          while idx == -1 or edge_idx_inv[idx] >= 2:
+            idx = np.random.randint(len(edge_idx_inv))
+          # Remove from old
+          old_module = edge_idx_inv[idx]
+          pos_in_old = edge_idx[old_module].index(idx)
+          del edge_idx[old_module][pos_in_old]
+          # Add to new
+          new_module = old_module
+          while new_module == old_module:
+            new_module = np.random.randint(2)
+          edge_idx_inv[idx] = new_module
+          edge_idx[new_module].append(idx)
+        return edge_idx, edge_idx_inv
+
+      new_node_idx = []
+      new_node_idx_inv = []
+      new_edge_idx = []
+      new_edge_idx_inv = []
+
+      for node_idx_batch, node_idx_inv_batch in zip(data['node_idx'], data['node_idx_inv']):
+        new_node_idx_batch, new_node_idx_inv_batch = propose_new_sturucture(node_idx_batch, node_idx_inv_batch)
+        new_node_idx.append(new_node_idx_batch)
+        new_node_idx_inv.append(new_node_idx_inv_batch)
+
+      for edge_idx_batch, edge_idx_inv_batch in zip(data['edge_idx'], data['edge_idx_inv']):
+        new_edge_idx_batch, new_edge_idx_inv_batch = propose_new_sturucture_edge(edge_idx_batch, edge_idx_inv_batch)
+        new_edge_idx.append(new_edge_idx_batch)
+        new_edge_idx_inv.append(new_edge_idx_inv_batch)
+
+      return new_node_idx, new_node_idx_inv, new_edge_idx, new_edge_idx_inv
+
+    def node_idx_to_batch(node_idx, node_idx_inv):
+      batched_node_idx = [[], []]
+      for i_batch, _ in enumerate(node_idx):
+        batched_node_idx[0] += [__ + i_batch * self.dataset_conf.num_node for __ in _[0]]
+        batched_node_idx[1] += [__ + i_batch * self.dataset_conf.num_node for __ in _[1]]
+      batched_node_idx_inv = []
+      for _ in node_idx_inv:
+        batched_node_idx_inv += _
+      return batched_node_idx, batched_node_idx_inv
+
+    def edge_idx_to_batch(edge_idx, edge_idx_inv):
+      batched_edge_idx = [[], []]
+      num_edge_before = 0
+      for idx, idx_inv in zip(edge_idx, edge_idx_inv):
+        batched_edge_idx[0] += [__ + num_edge_before for __ in idx[0]]
+        batched_edge_idx[1] += [__ + num_edge_before for __ in idx[1]]
+
+        num_edge_before += len(idx_inv)
+      batched_edge_idx_inv = []
+      for _ in edge_idx_inv:
+        batched_edge_idx_inv += _
+
+      return batched_edge_idx, batched_edge_idx_inv
+
+    print(self.dataset_conf.loader_name)
+    print(self.dataset_conf.split)
+    tik = time.time()
+
+    # create data loader
+    test_loader, name_list = eval(self.dataset_conf.loader_name)(self.config, split='test', shuffle=False, edge_module=True)
+
+    # create models
+    model = eval(self.model_conf.name)(self.config, test=True)
+    if 'GNN' in self.model_conf.name:
+      load_model(model, self.test_conf.test_model, train_pretext=self.train_pretext)
+
+    # create models
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    if self.use_gpu:
+      if self.parallel:
+        print("Using GPU dataparallel")
+        print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
+        model = DataParallel(model)
+      else:
+        print("Using single GPU")
+        model = nn.DataParallel(model, device_ids=self.gpus)
+        # model = DataParallel(model)
+    model.to(device)
+    print(model)
+
+    model.eval()
+    test_loss = []
+    pred_pts = []
+    gt_pts = []
+    state_hist = []
+    structure_info = []
+    structure_info_edge = []
+
+    temp = np.exp(self.initial_temp)
+
+    for step in tqdm(range(500), desc="META TEST"):
+
+      if self.temp_update:
+        acc_rate = np.exp(self.initial_acc - 5. * step / self.temp_slope_opt_steps)
+        if self.SA_running_acc_rate / self.SA_running_factor < acc_rate:
+          temp *= self.temp_change
+        else:
+          temp = max(temp / self.temp_change, self.min_temp)
+
+      for data in tqdm(test_loader):
+        loss = 0
+        node_idx, node_idx_inv = node_idx_to_batch(data['node_idx'], data['node_idx_inv'])
+        edge_idx, edge_idx_inv = node_idx_to_batch(data['edge_idx'], data['edge_idx_inv'])
+
+        if "TorchGNN_MsgGNN" not in self.model_conf.name:
+          data['idx_msg_edge'] = torch.tensor([0, 0]).contiguous().long()
+
+        with torch.no_grad():
+          log_prob, loss, loss_batch = model(data['edge_attr'], data['x'], data['edge_index'], data['idx_msg_edge'],
+                                             target=data['y'], node_idx=node_idx, node_idx_inv=node_idx_inv, edge_idx=edge_idx, edge_idx_inv=edge_idx_inv)
+
+          new_node_idx, new_node_idx_inv, new_edge_idx, new_edge_idx_inv = propose_new_sturucture_batch(data)
+          new_node_idx_, new_node_idx_inv_ = node_idx_to_batch(new_node_idx, new_node_idx_inv)
+          new_edge_idx_, new_edge_idx_inv_ = edge_idx_to_batch(new_edge_idx, new_edge_idx_inv)
+
+          log_prob_new, loss_new, new_loss_batch = model(data['edge_attr'], data['x'], data['edge_index'],
+                                                         data['idx_msg_edge'],
+                                                         target=data['y'], node_idx=new_node_idx_,
+                                                         node_idx_inv=new_node_idx_inv_, edge_idx=new_edge_idx_, edge_idx_inv=new_edge_idx_inv_)
+
+          updated_node_idx = []
+          updated_node_idx_inv = []
+          updated_edge_idx = []
+          updated_edge_idx_inv = []
+          for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch,
+                                             new_loss_batch):
+
+            if self.temp_update:
+              prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
+              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
+              upt_factor = min(0.01, self.SA_running_acc_rate / self.SA_running_factor)
+              self.SA_running_factor, self.SA_running_acc_rate = update_frac_worse_accepts(old_loss.data.cpu().numpy(),
+                                                                                           new_loss.data.cpu().numpy(),
+                                                                                           upt_factor, accept,
+                                                                                           self.SA_running_factor,
+                                                                                           self.SA_running_acc_rate)
+            else:
+              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy()
+
+            if accept:
+              updated_node_idx.append(new_node_idx[idx])
+              updated_node_idx_inv.append(new_node_idx_inv[idx])
+              updated_edge_idx.append(new_edge_idx[idx])
+              updated_edge_idx_inv.append(new_edge_idx_inv[idx])
+              loss += new_loss
+            else:
+              updated_node_idx.append(data['node_idx'][idx])
+              updated_node_idx_inv.append(data['node_idx_inv'][idx])
+              updated_node_idx.append(data['edge_idx'][idx])
+              updated_node_idx_inv.append(data['edge_idx_inv'][idx])
+              loss += old_loss
+
+          data['node_idx'] = updated_node_idx
+          data['node_idx_inv'] = updated_node_idx_inv
+          data['edge_idx'] = updated_edge_idx
+          data['edge_idx_inv'] = updated_edge_idx_inv
+
+        logger.info("Test Loss @ epoch {:04d} = {}".format(step + 1, loss))
+
+    print("=======================================")
+    print("TEST")
+    print("=======================================")
+    for data in tqdm(test_loader):
+      if "TorchGNN_MsgGNN" not in self.model_conf.name:
+        data['idx_msg_edge'] = torch.tensor([0, 0]).contiguous().long()
+
+      with torch.no_grad():
+        node_idx, node_idx_inv = node_idx_to_batch(data['node_idx'], data['node_idx_inv'])
+        log_prob, loss, loss_batch = model(data['edge_attr'], data['x'], data['edge_index'], data['idx_msg_edge'],
+                                           target=data['y'],
+                                           node_idx=node_idx, node_idx_inv=node_idx_inv)
+
+        pred_pts += [torch.exp(log_prob).data.cpu().numpy()]
+        gt_pts += [data['y'].data.cpu().numpy()]
+        structure_info.append(data['node_idx_inv'])
+        structure_info_edge.append(data['edge_idx_inv'])
+
+
+    pred_pts = np.concatenate(pred_pts, axis=0)
+    gt_pts = np.concatenate(gt_pts, axis=0)
+    name_list = np.array(name_list)
+    state_hist = np.array(state_hist)
+    # structure_info = np.array(structure_info)
+    np.savetxt(self.config.save_dir + '/pred_pts_' + self.dataset_conf.split + '.csv', pred_pts, delimiter='\t')
+    np.savetxt(self.config.save_dir + '/gt_pts_' + self.dataset_conf.split + '.csv', gt_pts, delimiter='\t')
+    file_name = os.path.join(self.config.save_dir, "name.p")
+    total_time = time.time() - tik
+
+    with open(os.path.join(self.config.save_dir, "{}.txt".format(total_time)), 'wb') as f:
+      pickle.dump(total_time, f)
+
+    with open(file_name, 'wb') as f:
+      pickle.dump(name_list, f)
+
+    file_name = os.path.join(self.config.save_dir, "sturucture_info.p")
+    with open(file_name, 'wb') as f:
+      pickle.dump(structure_info, f)
+
+    file_name = os.path.join(self.config.save_dir, "sturucture_info_edge.p")
+    with open(file_name, 'wb') as f:
+      pickle.dump(structure_info_edge, f)
 
     file_name = os.path.join(self.config.save_dir, "state_hist.p")
     with open(file_name, 'wb') as f:

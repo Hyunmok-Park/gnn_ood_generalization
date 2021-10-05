@@ -302,6 +302,7 @@ class NeuralInferenceRunner(object):
 
     return test_loss
 
+#DO NOT SEARCH TRAIN/VAL STRUCTURE
 class NeuralInferenceRunner_Meta(object):
   def __init__(self, config, config2):
     self.config = config
@@ -947,8 +948,9 @@ class NeuralInferenceRunner_Meta(object):
     with open(file_name, 'wb') as f:
       pickle.dump(state_hist, f)
 
-    return test_loss
+    return test_loss #
 
+#SEARCH TRAIN/VAL STRUCTURE
 class NeuralInferenceRunner_Meta2(object):
   def __init__(self, config, config2):
     self.config = config
@@ -1596,6 +1598,7 @@ class NeuralInferenceRunner_Meta2(object):
 
     return test_loss
 
+#TRAIN NODE MODULE FROM VAL
 class NeuralInferenceRunner_Meta3(object):
   def __init__(self, config, config2):
     self.config = config
@@ -1634,7 +1637,7 @@ class NeuralInferenceRunner_Meta3(object):
         SA_running_acc_rate = ((1 - upt_factor) * SA_running_acc_rate + y)
       return SA_running_factor, SA_running_acc_rate
 
-    def propose_new_sturucture_batch(data):
+    def propose_new_sturucture_batch(node_idx, node_idx_inv):
       def propose_new_sturucture(node_idx, node_idx_inv):
         # change_node = (np.random.rand() > 0.5)
         change_node = True
@@ -1657,7 +1660,7 @@ class NeuralInferenceRunner_Meta3(object):
       new_node_idx = []
       new_node_idx_inv = []
 
-      for node_idx_batch, node_idx_inv_batch in zip(data['node_idx'], data['node_idx_inv']):
+      for node_idx_batch, node_idx_inv_batch in zip(node_idx, node_idx_inv):
         new_node_idx_batch, new_node_idx_inv_batch = propose_new_sturucture(node_idx_batch, node_idx_inv_batch)
         new_node_idx.append(new_node_idx_batch)
         new_node_idx_inv.append(new_node_idx_inv_batch)
@@ -1678,10 +1681,10 @@ class NeuralInferenceRunner_Meta3(object):
     train_begin_time = time.time()
     # create data loader
     torch.cuda.empty_cache()
-    train_loader1, _ = eval(self.dataset_conf.loader_name)(self.config, split='train', shuffle=self.shuffle, parallel=self.parallel, master_node=self.master_node)
-    train_loader2, _ = eval(self.dataset_conf2.loader_name)(self.config2, split='train', shuffle=self.shuffle,parallel=self.parallel, master_node=self.master_node)
-    val_loader1, _ = eval(self.dataset_conf.loader_name)(self.config, split='val', shuffle=self.shuffle, parallel=self.parallel, master_node=self.master_node)
-    val_loader2, _ = eval(self.dataset_conf2.loader_name)(self.config2, split='val', shuffle=self.shuffle,parallel=self.parallel, master_node=self.master_node)
+    train_loader1, _ = eval(self.dataset_conf.loader_name)(self.config, split='train', shuffle=self.shuffle, parallel=self.parallel, master_node=self.master_node, sort_by_number=self.dataset_conf.data_path.split('/')[-1], random_init=self.model_conf.random_init)
+    train_loader2, _ = eval(self.dataset_conf2.loader_name)(self.config2, split='train', shuffle=self.shuffle,parallel=self.parallel, master_node=self.master_node, sort_by_number=self.dataset_conf2.data_path.split('/')[-1], random_init=self.model_conf.random_init)
+    val_loader1, _ = eval(self.dataset_conf.loader_name)(self.config, split='val', shuffle=self.shuffle, parallel=self.parallel, master_node=self.master_node, sort_by_number=self.dataset_conf.data_path.split('/')[-1], random_init=self.model_conf.random_init)
+    val_loader2, _ = eval(self.dataset_conf2.loader_name)(self.config2, split='val', shuffle=self.shuffle,parallel=self.parallel, master_node=self.master_node, sort_by_number=self.dataset_conf2.data_path.split('/')[-1], random_init=self.model_conf.random_init)
 
     # create models
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -1744,6 +1747,20 @@ class NeuralInferenceRunner_Meta3(object):
     results = defaultdict(list)
     temp = np.exp(self.initial_temp)
 
+    node_module_hist = []
+
+    node_idx_list1 = []
+    node_idx_inv_list1 = []
+    node_idx_list2 = []
+    node_idx_inv_list2 = []
+    for data1, data2 in tqdm(zip(val_loader1, val_loader2)):
+      node_idx_list1.append(data1['node_idx'])
+      node_idx_list2.append(data2['node_idx'])
+
+      node_idx_inv_list1.append(data1['node_idx_inv'])
+      node_idx_inv_list2.append(data2['node_idx_inv'])
+
+
     for epoch in range(self.train_conf.max_epoch):
       if self.temp_update:
         acc_rate = np.exp(self.initial_acc - 5. * epoch / self.temp_slope_opt_steps)
@@ -1756,7 +1773,7 @@ class NeuralInferenceRunner_Meta3(object):
       lr_scheduler.step()
       val_loss_list = []
       # ===================== validation ============================ #
-      for data1, data2 in tqdm(zip(val_loader1, val_loader2)):
+      for idx_main, [data1, data2] in tqdm(enumerate(zip(val_loader1, val_loader2))):
         # 0. clears all gradients.
         optimizer.zero_grad()
         val_loss = 0
@@ -1768,8 +1785,12 @@ class NeuralInferenceRunner_Meta3(object):
         ########################
         # SEARCH VAL STRUCTURE
         ########################
-        node_idx1, node_idx_inv1 = node_idx_to_batch(data1['node_idx'], data1['node_idx_inv'])
-        node_idx2, node_idx_inv2 = node_idx_to_batch(data2['node_idx'], data2['node_idx_inv'])
+        node_idx1, node_idx_inv1 = node_idx_to_batch(node_idx_list1[idx_main], node_idx_inv_list1[idx_main])
+        node_idx2, node_idx_inv2 = node_idx_to_batch(node_idx_list2[idx_main], node_idx_inv_list2[idx_main])
+        # node_idx1, node_idx_inv1 = node_idx_to_batch(data1['node_idx'], data1['node_idx_inv'])
+        # node_idx2, node_idx_inv2 = node_idx_to_batch(data2['node_idx'], data2['node_idx_inv'])
+
+        node_module_hist.append([node_idx_inv1, node_idx_inv2])
 
         _, loss1, loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'], data1['idx_msg_edge'], target=data1['y'], node_idx=node_idx1, node_idx_inv=node_idx_inv1)
         _, loss2, loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'], data2['idx_msg_edge'], target=data2['y'], node_idx=node_idx2, node_idx_inv=node_idx_inv2)
@@ -1800,9 +1821,10 @@ class NeuralInferenceRunner_Meta3(object):
 
       logger.info("Current Best Validation Loss = {}".format(best_val_loss))
 
+      a = False
       # ====================== training ============================= #
       model.eval()
-      for ii1, [data1, data2] in enumerate(zip(train_loader1, train_loader2)):
+      for idx_main, [data1, data2, data1_val, data2_val] in enumerate(zip(train_loader1, train_loader2, val_loader1, val_loader2)):
         loss = 0
         ########################
         # SEARCH TRAIN STRUCTURE
@@ -1815,84 +1837,86 @@ class NeuralInferenceRunner_Meta3(object):
           ##############################
           # LOAD STRUCTURE FROM VAL DATA
           ##############################
+          # node_idx1, node_idx_inv1 = node_idx_to_batch(data1_val['node_idx'], data1_val['node_idx_inv'])
+          # node_idx2, node_idx_inv2 = node_idx_to_batch(data2_val['node_idx'], data2_val['node_idx_inv'])
+          node_idx1, node_idx_inv1 = node_idx_to_batch(node_idx_list1[idx_main], node_idx_inv_list1[idx_main])
+          node_idx2, node_idx_inv2 = node_idx_to_batch(node_idx_list2[idx_main], node_idx_inv_list2[idx_main])
 
-          for ii2, [data1_val, data2_val] in enumerate(zip(val_loader1, val_loader2)):
-            if ii2 == ii1 % 20:
-              node_idx1, node_idx_inv1 = node_idx_to_batch(data1_val['node_idx'], data1_val['node_idx_inv'])
-              node_idx2, node_idx_inv2 = node_idx_to_batch(data2_val['node_idx'], data2_val['node_idx_inv'])
+          _, loss1, loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'], data1['idx_msg_edge'], target=data1['y'], node_idx=node_idx1, node_idx_inv=node_idx_inv1)
+          _, loss2, loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'], data2['idx_msg_edge'], target=data2['y'], node_idx=node_idx2, node_idx_inv=node_idx_inv2)
 
-              _, loss1, loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'], data1['idx_msg_edge'], target=data1['y'], node_idx=node_idx1, node_idx_inv=node_idx_inv1)
-              _, loss2, loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'], data2['idx_msg_edge'], target=data2['y'], node_idx=node_idx2, node_idx_inv=node_idx_inv2)
+          new_node_idx1, new_node_idx_inv1 = propose_new_sturucture_batch(node_idx_list1[idx_main], node_idx_inv_list1[idx_main])
+          new_node_idx2, new_node_idx_inv2 = propose_new_sturucture_batch(node_idx_list2[idx_main], node_idx_inv_list2[idx_main])
 
-              new_node_idx1, new_node_idx_inv1 = propose_new_sturucture_batch(data1_val)
-              new_node_idx2, new_node_idx_inv2 = propose_new_sturucture_batch(data2_val)
+          new_node_idx1_, new_node_idx_inv1_ = node_idx_to_batch(new_node_idx1, new_node_idx_inv1)
+          new_node_idx2_, new_node_idx_inv2_ = node_idx_to_batch(new_node_idx2, new_node_idx_inv2)
 
-              new_node_idx1_, new_node_idx_inv1_ = node_idx_to_batch(new_node_idx1, new_node_idx_inv1)
-              new_node_idx2_, new_node_idx_inv2_ = node_idx_to_batch(new_node_idx2, new_node_idx_inv2)
+          _, new_loss1, new_loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'],
+                                                data1['idx_msg_edge'],
+                                                target=data1['y'], node_idx=new_node_idx1_,
+                                                node_idx_inv=new_node_idx_inv1_)
+          _, new_loss2, new_loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'],
+                                                data2['idx_msg_edge'],
+                                                target=data2['y'], node_idx=new_node_idx2_,
+                                                node_idx_inv=new_node_idx_inv2_)
 
-              _, new_loss1, new_loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'],
-                                                    data1['idx_msg_edge'],
-                                                    target=data1['y'], node_idx=new_node_idx1_,
-                                                    node_idx_inv=new_node_idx_inv1_)
-              _, new_loss2, new_loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'],
-                                                    data2['idx_msg_edge'],
-                                                    target=data2['y'], node_idx=new_node_idx2_,
-                                                    node_idx_inv=new_node_idx_inv2_)
-
-              updated_node_idx1 = []
-              updated_node_idx_inv1 = []
-              for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch1,
-                                                 new_loss_batch1):
-                if self.temp_update:
-                  prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
-                  accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
-                  upt_factor = min(0.01, self.SA_running_acc_rate / self.SA_running_factor)
-                  self.SA_running_factor, self.SA_running_acc_rate = update_frac_worse_accepts(old_loss.data.cpu().numpy(), new_loss.data.cpu().numpy(), upt_factor, accept, self.SA_running_factor, self.SA_running_acc_rate)
-                else:
-                  accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy()
-
-                if accept:
-                  updated_node_idx1.append(new_node_idx1[idx])
-                  updated_node_idx_inv1.append(new_node_idx_inv1[idx])
-                  loss += new_loss
-
-                else:
-                  updated_node_idx1.append(data1_val['node_idx'][idx])
-                  updated_node_idx_inv1.append(data1_val['node_idx_inv'][idx])
-                  loss += old_loss
-
-              updated_node_idx2 = []
-              updated_node_idx_inv2 = []
-              for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch2,
-                                                 new_loss_batch2):
-
-                if self.temp_update:
-                  prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
-                  accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
-                  upt_factor = min(0.01, self.SA_running_acc_rate / self.SA_running_factor)
-                  self.SA_running_factor, self.SA_running_acc_rate = update_frac_worse_accepts(old_loss.data.cpu().numpy(),
-                                                                                               new_loss.data.cpu().numpy(),
-                                                                                               upt_factor, accept,
-                                                                                               self.SA_running_factor,
-                                                                                               self.SA_running_acc_rate)
-                else:
-                  accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy()
-
-                if accept:
-                  updated_node_idx2.append(new_node_idx2[idx])
-                  updated_node_idx_inv2.append(new_node_idx_inv2[idx])
-                  loss += new_loss
-                else:
-                  updated_node_idx2.append(data2_val['node_idx'][idx])
-                  updated_node_idx_inv2.append(data2_val['node_idx_inv'][idx])
-                  loss += old_loss
-
-              data1_val['node_idx'] = updated_node_idx1
-              data2_val['node_idx'] = updated_node_idx2
-              data1_val['node_idx_inv'] = updated_node_idx_inv1
-              data2_val['node_idx_inv'] = updated_node_idx_inv2
+          updated_node_idx1 = []
+          updated_node_idx_inv1 = []
+          for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch1,
+                                             new_loss_batch1):
+            if self.temp_update:
+              prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
+              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
+              upt_factor = min(0.01, self.SA_running_acc_rate / self.SA_running_factor)
+              self.SA_running_factor, self.SA_running_acc_rate = update_frac_worse_accepts(old_loss.data.cpu().numpy(), new_loss.data.cpu().numpy(), upt_factor, accept, self.SA_running_factor, self.SA_running_acc_rate)
             else:
-              continue
+              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy()
+
+            if accept:
+              updated_node_idx1.append(new_node_idx1[idx])
+              updated_node_idx_inv1.append(new_node_idx_inv1[idx])
+              loss += new_loss
+
+            else:
+              updated_node_idx1.append(node_idx_list1[idx_main][idx])
+              updated_node_idx_inv1.append(node_idx_inv_list1[idx_main][idx])
+              loss += old_loss
+
+          updated_node_idx2 = []
+          updated_node_idx_inv2 = []
+          for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch2,
+                                             new_loss_batch2):
+
+            if self.temp_update:
+              prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
+              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy() or np.random.rand() < prob_accept
+              upt_factor = min(0.01, self.SA_running_acc_rate / self.SA_running_factor)
+              self.SA_running_factor, self.SA_running_acc_rate = update_frac_worse_accepts(old_loss.data.cpu().numpy(),
+                                                                                           new_loss.data.cpu().numpy(),
+                                                                                           upt_factor, accept,
+                                                                                           self.SA_running_factor,
+                                                                                           self.SA_running_acc_rate)
+            else:
+              accept = new_loss.data.cpu().numpy() <= old_loss.data.cpu().numpy()
+
+            if accept:
+              updated_node_idx2.append(new_node_idx2[idx])
+              updated_node_idx_inv2.append(new_node_idx_inv2[idx])
+              loss += new_loss
+            else:
+              updated_node_idx2.append(node_idx_list2[idx_main][idx])
+              updated_node_idx_inv2.append(node_idx_inv_list2[idx_main][idx])
+              loss += old_loss
+
+          # data1_val['node_idx'] = updated_node_idx1
+          # data2_val['node_idx'] = updated_node_idx2
+          # data1_val['node_idx_inv'] = updated_node_idx_inv1
+          # data2_val['node_idx_inv'] = updated_node_idx_inv2
+
+          node_idx_list1[idx_main] = updated_node_idx1
+          node_idx_inv_list1[idx_main] = updated_node_idx_inv1
+          node_idx_list2[idx_main]= updated_node_idx2
+          node_idx_inv_list2[idx_main] = updated_node_idx_inv2
 
         train_loss = float(loss.data.cpu().numpy())
         results['train_loss'] += [train_loss]
@@ -1914,12 +1938,9 @@ class NeuralInferenceRunner_Meta3(object):
     train_structure1 = []
     val_structure2 = []
     train_structure2 = []
-    for data1, data2 in tqdm(zip(val_loader1, val_loader2)):
-      val_structure1.append([data1['edge_index'], data1['node_idx']])
-      val_structure2.append([data2['edge_index'], data2['node_idx']])
-    for data1, data2 in zip(train_loader1, train_loader2):
-      train_structure1.append([data1['edge_index'], data1['node_idx']])
-      train_structure2.append([data2['edge_index'], data2['node_idx']])
+    for idx, [data1, data2] in tqdm(enumerate(zip(val_loader1, val_loader2))):
+      val_structure1.append([data1['edge_index'], node_idx_inv_list1[idx]])
+      val_structure2.append([data2['edge_index'], node_idx_inv_list2[idx]])
 
     with open(os.path.join(self.config.save_dir, 'val_structure1.p'), "wb") as f:
       pickle.dump(val_structure1, f)
@@ -1937,6 +1958,9 @@ class NeuralInferenceRunner_Meta3(object):
       pickle.dump(train_structure2, f)
       del train_structure2
 
+    with open(os.path.join(self.config.save_dir, 'node_module_hist.p'), "wb") as f:
+      pickle.dump(node_module_hist, f)
+      del node_module_hist
 
     print(np.array(results['hidden_state']).shape)
     results['best_val_loss'] += [best_val_loss]
@@ -1965,7 +1989,7 @@ class NeuralInferenceRunner_Meta3(object):
         SA_running_acc_rate = ((1 - upt_factor) * SA_running_acc_rate + y)
       return SA_running_factor, SA_running_acc_rate
 
-    def propose_new_sturucture_batch(data):
+    def propose_new_sturucture_batch(node_idx, node_idx_inv):
       def propose_new_sturucture(node_idx, node_idx_inv):
         # change_node = (np.random.rand() > 0.5)
         change_node = True
@@ -1988,7 +2012,7 @@ class NeuralInferenceRunner_Meta3(object):
       new_node_idx = []
       new_node_idx_inv = []
 
-      for node_idx_batch, node_idx_inv_batch in zip(data['node_idx'], data['node_idx_inv']):
+      for node_idx_batch, node_idx_inv_batch in zip(node_idx, node_idx_inv):
         new_node_idx_batch, new_node_idx_inv_batch = propose_new_sturucture(node_idx_batch, node_idx_inv_batch)
         new_node_idx.append(new_node_idx_batch)
         new_node_idx_inv.append(new_node_idx_inv_batch)
@@ -2010,7 +2034,7 @@ class NeuralInferenceRunner_Meta3(object):
     tik = time.time()
 
     # create data loader
-    test_loader, name_list = eval(self.dataset_conf.loader_name)(self.config, split='test', shuffle=False)
+    test_loader, name_list = eval(self.dataset_conf.loader_name)(self.config, split='test', shuffle=False, random_init=self.model_conf.random_init)
 
     # create models
     model = eval(self.model_conf.name)(self.config, test=True)
@@ -2040,8 +2064,13 @@ class NeuralInferenceRunner_Meta3(object):
 
     temp = np.exp(self.initial_temp)
 
-    for step in tqdm(range(500), desc="META TEST"):
+    node_idx_list = []
+    node_idx_inv_list = []
+    for data in tqdm(test_loader):
+      node_idx_list.append(data['node_idx'])
+      node_idx_inv_list.append(data['node_idx_inv'])
 
+    for step in tqdm(range(self.config.test.optim_step), desc="META TEST"):
       if self.temp_update:
         acc_rate = np.exp(self.initial_acc - 5. * step / self.temp_slope_opt_steps)
         if self.SA_running_acc_rate / self.SA_running_factor < acc_rate:
@@ -2049,9 +2078,10 @@ class NeuralInferenceRunner_Meta3(object):
         else:
           temp = max(temp / self.temp_change, self.min_temp)
 
-      for data in tqdm(test_loader):
+      for idx_main, data in tqdm(enumerate(test_loader)):
         loss = 0
-        node_idx, node_idx_inv = node_idx_to_batch(data['node_idx'], data['node_idx_inv'])
+        # node_idx, node_idx_inv = node_idx_to_batch(data['node_idx'], data['node_idx_inv'])
+        node_idx, node_idx_inv = node_idx_to_batch(node_idx_list[idx_main], node_idx_inv_list[idx_main])
 
         if "TorchGNN_MsgGNN" not in self.model_conf.name:
           data['idx_msg_edge'] = torch.tensor([0, 0]).contiguous().long()
@@ -2061,7 +2091,7 @@ class NeuralInferenceRunner_Meta3(object):
           log_prob, loss, loss_batch = model(data['edge_attr'], data['x'], data['edge_index'], data['idx_msg_edge'],
                                              target=data['y'], node_idx=node_idx, node_idx_inv=node_idx_inv)
 
-          new_node_idx, new_node_idx_inv = propose_new_sturucture_batch(data)
+          new_node_idx, new_node_idx_inv = propose_new_sturucture_batch(node_idx_list[idx_main], node_idx_inv_list[idx_main])
           new_node_idx_, new_node_idx_inv_ = node_idx_to_batch(new_node_idx, new_node_idx_inv)
 
           # old_node_idx, old_node_idx_inv = copy.deepcopy(data['node_idx']), copy.deepcopy(data['node_idx_inv'])
@@ -2080,8 +2110,6 @@ class NeuralInferenceRunner_Meta3(object):
           #   data['node_idx'], data['node_idx_inv'] = new_node_idx, new_node_idx_inv
           # else:
           #   data['node_idx'], data['node_idx_inv'] = old_node_idx, old_node_idx_inv
-
-
 
           updated_node_idx = []
           updated_node_idx_inv = []
@@ -2105,31 +2133,33 @@ class NeuralInferenceRunner_Meta3(object):
               updated_node_idx_inv.append(new_node_idx_inv[idx])
               loss += new_loss
             else:
-              updated_node_idx.append(data['node_idx'][idx])
-              updated_node_idx_inv.append(data['node_idx_inv'][idx])
+              updated_node_idx.append(node_idx_list[idx_main][idx])
+              updated_node_idx_inv.append(node_idx_inv_list[idx_main][idx])
               loss += old_loss
 
-          data['node_idx'] = updated_node_idx
-          data['node_idx_inv'] = updated_node_idx_inv
+          # data['node_idx'] = updated_node_idx
+          # data['node_idx_inv'] = updated_node_idx_inv
+          node_idx_list[idx_main] = updated_node_idx
+          node_idx_inv_list[idx_main] = updated_node_idx_inv
 
         logger.info("Test Loss @ epoch {:04d} = {}".format(step + 1, loss))
 
     print("=======================================")
     print("TEST")
     print("=======================================")
-    for data in tqdm(test_loader):
+    for idx, data in tqdm(enumerate(test_loader)):
       if "TorchGNN_MsgGNN" not in self.model_conf.name:
         data['idx_msg_edge'] = torch.tensor([0, 0]).contiguous().long()
 
       with torch.no_grad():
-        node_idx, node_idx_inv = node_idx_to_batch(data['node_idx'], data['node_idx_inv'])
+        node_idx, node_idx_inv = node_idx_to_batch(node_idx_list[idx], node_idx_inv_list[idx])
         log_prob, loss, loss_batch = model(data['edge_attr'], data['x'], data['edge_index'], data['idx_msg_edge'],
                                            target=data['y'],
                                            node_idx=node_idx, node_idx_inv=node_idx_inv)
 
         pred_pts += [torch.exp(log_prob).data.cpu().numpy()]
         gt_pts += [data['y'].data.cpu().numpy()]
-        structure_info.append(data['node_idx_inv'])
+        structure_info.append(node_idx_inv_list[idx])
 
     pred_pts = np.concatenate(pred_pts, axis=0)
     gt_pts = np.concatenate(gt_pts, axis=0)
@@ -2157,6 +2187,7 @@ class NeuralInferenceRunner_Meta3(object):
 
     return test_loss
 
+#TRAIN NODE,EDGE MODULE FROM VAL
 class NeuralInferenceRunner_Meta4(object):
   def __init__(self, config, config2):
     self.config = config
@@ -2195,7 +2226,7 @@ class NeuralInferenceRunner_Meta4(object):
         SA_running_acc_rate = ((1 - upt_factor) * SA_running_acc_rate + y)
       return SA_running_factor, SA_running_acc_rate
 
-    def propose_new_sturucture_batch(data):
+    def propose_new_sturucture_batch(node_idx, node_idx_inv, edge_idx, edge_idx_inv):
       def propose_new_sturucture(node_idx, node_idx_inv):
         # change_node = (np.random.rand() > 0.5)
         change_node = True
@@ -2239,12 +2270,12 @@ class NeuralInferenceRunner_Meta4(object):
       new_edge_idx = []
       new_edge_idx_inv = []
 
-      for node_idx_batch, node_idx_inv_batch in zip(data['node_idx'], data['node_idx_inv']):
+      for node_idx_batch, node_idx_inv_batch in zip(node_idx, node_idx_inv):
         new_node_idx_batch, new_node_idx_inv_batch = propose_new_sturucture(node_idx_batch, node_idx_inv_batch)
         new_node_idx.append(new_node_idx_batch)
         new_node_idx_inv.append(new_node_idx_inv_batch)
 
-      for edge_idx_batch, edge_idx_inv_batch in zip(data['edge_idx'], data['edge_idx_inv']):
+      for edge_idx_batch, edge_idx_inv_batch in zip(edge_idx, edge_idx_inv):
         new_edge_idx_batch, new_edge_idx_inv_batch = propose_new_sturucture_edge(edge_idx_batch, edge_idx_inv_batch)
         new_edge_idx.append(new_edge_idx_batch)
         new_edge_idx_inv.append(new_edge_idx_inv_batch)
@@ -2280,10 +2311,10 @@ class NeuralInferenceRunner_Meta4(object):
     train_begin_time = time.time()
     # create data loader
     torch.cuda.empty_cache()
-    train_loader1, _ = eval(self.dataset_conf.loader_name)(self.config, split='train', shuffle=self.shuffle, parallel=self.parallel, master_node=self.master_node, edge_module=True)
-    train_loader2, _ = eval(self.dataset_conf2.loader_name)(self.config2, split='train', shuffle=self.shuffle,parallel=self.parallel, master_node=self.master_node, edge_module=True)
-    val_loader1, _ = eval(self.dataset_conf.loader_name)(self.config, split='val', shuffle=self.shuffle, parallel=self.parallel, master_node=self.master_node, edge_module=True)
-    val_loader2, _ = eval(self.dataset_conf2.loader_name)(self.config2, split='val', shuffle=self.shuffle,parallel=self.parallel, master_node=self.master_node, edge_module=True)
+    train_loader1, _ = eval(self.dataset_conf.loader_name)(self.config, split='train', shuffle=self.shuffle, parallel=self.parallel, master_node=self.master_node, edge_module=True, sort_by_number=self.dataset_conf.data_path.split('/')[-1], random_init=self.model_conf.random_init)
+    train_loader2, _ = eval(self.dataset_conf2.loader_name)(self.config2, split='train', shuffle=self.shuffle,parallel=self.parallel, master_node=self.master_node, edge_module=True, sort_by_number=self.dataset_conf2.data_path.split('/')[-1], random_init=self.model_conf.random_init)
+    val_loader1, _ = eval(self.dataset_conf.loader_name)(self.config, split='val', shuffle=self.shuffle, parallel=self.parallel, master_node=self.master_node, edge_module=True, sort_by_number=self.dataset_conf.data_path.split('/')[-1], random_init=self.model_conf.random_init)
+    val_loader2, _ = eval(self.dataset_conf2.loader_name)(self.config2, split='val', shuffle=self.shuffle,parallel=self.parallel, master_node=self.master_node, edge_module=True, sort_by_number=self.dataset_conf2.data_path.split('/')[-1], random_init=self.model_conf.random_init)
 
     # create models
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -2346,6 +2377,32 @@ class NeuralInferenceRunner_Meta4(object):
     results = defaultdict(list)
     temp = np.exp(self.initial_temp)
 
+    node_module_hist = []
+    edge_module_hist = []
+
+    node_idx_list1 = []
+    node_idx_inv_list1 = []
+    node_idx_list2 = []
+    node_idx_inv_list2 = []
+
+    edge_idx_list1 = []
+    edge_idx_inv_list1 = []
+    edge_idx_list2 = []
+    edge_idx_inv_list2 = []
+    for data1, data2 in tqdm(zip(val_loader1, val_loader2)):
+      node_idx_list1.append(data1['node_idx'])
+      node_idx_list2.append(data2['node_idx'])
+
+      node_idx_inv_list1.append(data1['node_idx_inv'])
+      node_idx_inv_list2.append(data2['node_idx_inv'])
+
+      edge_idx_list1.append(data1['edge_idx'])
+      edge_idx_list2.append(data2['edge_idx'])
+
+      edge_idx_inv_list1.append(data1['edge_idx_inv'])
+      edge_idx_inv_list2.append(data2['edge_idx_inv'])
+
+
     for epoch in range(self.train_conf.max_epoch):
       if self.temp_update:
         acc_rate = np.exp(self.initial_acc - 5. * epoch / self.temp_slope_opt_steps)
@@ -2358,7 +2415,7 @@ class NeuralInferenceRunner_Meta4(object):
       lr_scheduler.step()
       val_loss_list = []
       # ===================== validation ============================ #
-      for data1, data2 in tqdm(zip(val_loader1, val_loader2)):
+      for idx_main, [data1, data2] in tqdm(enumerate(zip(val_loader1, val_loader2))):
         # 0. clears all gradients.
         optimizer.zero_grad()
         val_loss = 0
@@ -2370,11 +2427,19 @@ class NeuralInferenceRunner_Meta4(object):
         ########################
         # SEARCH VAL STRUCTURE
         ########################
-        node_idx1, node_idx_inv1 = node_idx_to_batch(data1['node_idx'], data1['node_idx_inv'])
-        node_idx2, node_idx_inv2 = node_idx_to_batch(data2['node_idx'], data2['node_idx_inv'])
+        # node_idx1, node_idx_inv1 = node_idx_to_batch(data1['node_idx'], data1['node_idx_inv'])
+        # node_idx2, node_idx_inv2 = node_idx_to_batch(data2['node_idx'], data2['node_idx_inv'])
+        node_idx1, node_idx_inv1 = node_idx_to_batch(node_idx_list1[idx_main], node_idx_inv_list1[idx_main])
+        node_idx2, node_idx_inv2 = node_idx_to_batch(node_idx_list2[idx_main], node_idx_inv_list2[idx_main])
 
-        edge_idx1, edge_idx_inv1 = edge_idx_to_batch(data1['edge_idx'], data1['edge_idx_inv'])
-        edge_idx2, edge_idx_inv2 = edge_idx_to_batch(data2['edge_idx'], data2['edge_idx_inv'])
+        node_module_hist.append([node_idx_inv1, node_idx_inv2])
+
+        # edge_idx1, edge_idx_inv1 = edge_idx_to_batch(data1['edge_idx'], data1['edge_idx_inv'])
+        # edge_idx2, edge_idx_inv2 = edge_idx_to_batch(data2['edge_idx'], data2['edge_idx_inv'])
+        edge_idx1, edge_idx_inv1 = edge_idx_to_batch(edge_idx_list1[idx_main], edge_idx_inv_list1[idx_main])
+        edge_idx2, edge_idx_inv2 = edge_idx_to_batch(edge_idx_list2[idx_main], edge_idx_inv_list2[idx_main])
+
+        edge_module_hist.append([edge_idx_inv1, edge_idx_inv2])
 
         _, loss1, loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'], data1['idx_msg_edge'], target=data1['y'], node_idx=node_idx1, node_idx_inv=node_idx_inv1, edge_idx=edge_idx1, edge_idx_inv=edge_idx_inv1)
         _, loss2, loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'], data2['idx_msg_edge'], target=data2['y'], node_idx=node_idx2, node_idx_inv=node_idx_inv2, edge_idx=edge_idx2, edge_idx_inv=edge_idx_inv2)
@@ -2407,7 +2472,7 @@ class NeuralInferenceRunner_Meta4(object):
 
       # ====================== training ============================= #
       model.eval()
-      for ii1, [data1, data2, data1_val, data2_val] in enumerate(zip(train_loader1, train_loader2, val_loader1, val_loader2)):
+      for idx_main, [data1, data2, data1_val, data2_val] in enumerate(zip(train_loader1, train_loader2, val_loader1, val_loader2)):
         loss = 0
         ########################
         # SEARCH TRAIN STRUCTURE
@@ -2420,11 +2485,13 @@ class NeuralInferenceRunner_Meta4(object):
           ##############################
           # LOAD STRUCTURE FROM VAL DATA
           ##############################
-          node_idx1, node_idx_inv1 = node_idx_to_batch(data1_val['node_idx'], data1_val['node_idx_inv'])
-          node_idx2, node_idx_inv2 = node_idx_to_batch(data2_val['node_idx'], data2_val['node_idx_inv'])
+          # node_idx1, node_idx_inv1 = node_idx_to_batch(data1_val['node_idx'], data1_val['node_idx_inv'])
+          # node_idx2, node_idx_inv2 = node_idx_to_batch(data2_val['node_idx'], data2_val['node_idx_inv'])
+          node_idx1, node_idx_inv1 = node_idx_to_batch(node_idx_list1[idx_main], node_idx_inv_list1[idx_main])
+          node_idx2, node_idx_inv2 = node_idx_to_batch(node_idx_list2[idx_main], node_idx_inv_list2[idx_main])
 
-          edge_idx1, edge_idx_inv1 = edge_idx_to_batch(data1['edge_idx'], data1['edge_idx_inv'])
-          edge_idx2, edge_idx_inv2 = edge_idx_to_batch(data2['edge_idx'], data2['edge_idx_inv'])
+          edge_idx1, edge_idx_inv1 = edge_idx_to_batch(edge_idx_list1[idx_main], edge_idx_inv_list1[idx_main])
+          edge_idx2, edge_idx_inv2 = edge_idx_to_batch(edge_idx_list2[idx_main], edge_idx_inv_list2[idx_main])
 
           _, loss1, loss_batch1 = model(data1['edge_attr'], data1['x'], data1['edge_index'], data1['idx_msg_edge'], target=data1['y'], node_idx=node_idx1, node_idx_inv=node_idx_inv1, edge_idx=edge_idx1, edge_idx_inv=edge_idx_inv1)
           _, loss2, loss_batch2 = model(data2['edge_attr'], data2['x'], data2['edge_index'], data2['idx_msg_edge'], target=data2['y'], node_idx=node_idx2, node_idx_inv=node_idx_inv2, edge_idx=edge_idx2, edge_idx_inv=edge_idx_inv2)
@@ -2432,8 +2499,8 @@ class NeuralInferenceRunner_Meta4(object):
           ######################
           # PROPOSE NEW STRUCTURE
           ######################
-          new_node_idx1, new_node_idx_inv1, new_edge_idx1, new_edge_idx_inv1 = propose_new_sturucture_batch(data1_val)
-          new_node_idx2, new_node_idx_inv2, new_edge_idx2, new_edge_idx_inv2 = propose_new_sturucture_batch(data2_val)
+          new_node_idx1, new_node_idx_inv1, new_edge_idx1, new_edge_idx_inv1 = propose_new_sturucture_batch(node_idx_list1[idx_main], node_idx_inv_list1[idx_main], edge_idx_list1[idx_main], edge_idx_inv_list1[idx_main])
+          new_node_idx2, new_node_idx_inv2, new_edge_idx2, new_edge_idx_inv2 = propose_new_sturucture_batch(node_idx_list2[idx_main], node_idx_inv_list2[idx_main], edge_idx_list2[idx_main], edge_idx_inv_list2[idx_main])
 
           new_node_idx1_, new_node_idx_inv1_ = node_idx_to_batch(new_node_idx1, new_node_idx_inv1)
           new_node_idx2_, new_node_idx_inv2_ = node_idx_to_batch(new_node_idx2, new_node_idx_inv2)
@@ -2472,10 +2539,10 @@ class NeuralInferenceRunner_Meta4(object):
               loss += new_loss
 
             else:
-              updated_node_idx1.append(data1_val['node_idx'][idx])
-              updated_node_idx_inv1.append(data1_val['node_idx_inv'][idx])
-              updated_edge_idx1.append(data1_val['edge_idx'][idx])
-              updated_edge_idx_inv1.append(data1_val['edge_idx_inv'][idx])
+              updated_node_idx1.append(node_idx_list1[idx_main][idx])
+              updated_node_idx_inv1.append(node_idx_inv_list1[idx_main][idx])
+              updated_edge_idx1.append(edge_idx_list1[idx_main][idx])
+              updated_edge_idx_inv1.append(edge_idx_inv_list1[idx_main][idx])
               loss += old_loss
 
           updated_node_idx2 = []
@@ -2504,21 +2571,31 @@ class NeuralInferenceRunner_Meta4(object):
               updated_edge_idx_inv2.append(new_edge_idx_inv2[idx])
               loss += new_loss
             else:
-              updated_node_idx2.append(data2_val['node_idx'][idx])
-              updated_node_idx_inv2.append(data2_val['node_idx_inv'][idx])
-              updated_edge_idx2.append(data2_val['edge_idx'][idx])
-              updated_edge_idx_inv2.append(data2_val['edge_idx_inv'][idx])
+              updated_node_idx2.append(node_idx_list2[idx_main][idx])
+              updated_node_idx_inv2.append(node_idx_inv_list2[idx_main][idx])
+              updated_edge_idx2.append(edge_idx_list2[idx_main][idx])
+              updated_edge_idx_inv2.append(edge_idx_inv_list2[idx_main][idx])
               loss += old_loss
 
-          data1_val['node_idx'] = updated_node_idx1
-          data2_val['node_idx'] = updated_node_idx2
-          data1_val['node_idx_inv'] = updated_node_idx_inv1
-          data2_val['node_idx_inv'] = updated_node_idx_inv2
+          # data1_val['node_idx'] = updated_node_idx1
+          # data2_val['node_idx'] = updated_node_idx2
+          # data1_val['node_idx_inv'] = updated_node_idx_inv1
+          # data2_val['node_idx_inv'] = updated_node_idx_inv2
+          #
+          # data1_val['edge_idx'] = updated_edge_idx1
+          # data2_val['edge_idx'] = updated_edge_idx2
+          # data1_val['edge_idx_inv'] = updated_edge_idx_inv1
+          # data2_val['edge_idx_inv'] = updated_edge_idx_inv2
 
-          data1_val['edge_idx'] = updated_edge_idx1
-          data2_val['edge_idx'] = updated_edge_idx2
-          data1_val['edge_idx_inv'] = updated_edge_idx_inv1
-          data2_val['edge_idx_inv'] = updated_edge_idx_inv2
+          node_idx_list1[idx_main] = updated_node_idx1
+          node_idx_list2[idx_main] = updated_node_idx2
+          node_idx_inv_list1[idx_main] = updated_node_idx_inv1
+          node_idx_inv_list2[idx_main] = updated_node_idx_inv2
+
+          edge_idx_list1[idx_main] = updated_edge_idx1
+          edge_idx_list2[idx_main] = updated_edge_idx2
+          edge_idx_inv_list1[idx_main] = updated_edge_idx_inv1
+          edge_idx_inv_list2[idx_main] = updated_edge_idx_inv2
 
         train_loss = float(loss.data.cpu().numpy())
         results['train_loss'] += [train_loss]
@@ -2545,16 +2622,11 @@ class NeuralInferenceRunner_Meta4(object):
     train_structure1_edge = []
     val_structure2_edge = []
     train_structure2_edge = []
-    for data1, data2 in tqdm(zip(val_loader1, val_loader2)):
-      val_structure1.append([data1['edge_index'], data1['node_idx']])
-      val_structure2.append([data2['edge_index'], data2['node_idx']])
-      val_structure1_edge.append([data1['edge_index'], data1['edge_idx']])
-      val_structure2_edge.append([data2['edge_index'], data2['edge_idx']])
-    for data1, data2 in zip(train_loader1, train_loader2):
-      train_structure1.append([data1['edge_index'], data1['node_idx']])
-      train_structure2.append([data2['edge_index'], data2['node_idx']])
-      train_structure1_edge.append([data1['edge_index'], data1['edge_idx']])
-      train_structure2_edge.append([data2['edge_index'], data2['edge_idx']])
+    for idx, [data1, data2] in tqdm(enumerate(zip(val_loader1, val_loader2))):
+      val_structure1.append([data1['edge_index'], node_idx_list1[idx]])
+      val_structure2.append([data2['edge_index'], node_idx_list2[idx]])
+      val_structure1_edge.append([data1['edge_index'], edge_idx_list1[idx]])
+      val_structure2_edge.append([data2['edge_index'], edge_idx_list2[idx]])
 
     with open(os.path.join(self.config.save_dir, 'val_structure1.p'), "wb") as f:
       pickle.dump(val_structure1, f)
@@ -2588,6 +2660,13 @@ class NeuralInferenceRunner_Meta4(object):
       pickle.dump(train_structure2_edge, f)
       del train_structure2_edge
 
+    with open(os.path.join(self.config.save_dir, 'node_module_hist.p'), "wb") as f:
+      pickle.dump(node_module_hist, f)
+      del node_module_hist
+
+    with open(os.path.join(self.config.save_dir, 'edge_module_hist.p'), "wb") as f:
+      pickle.dump(edge_module_hist, f)
+      del edge_module_hist
 
     print(np.array(results['hidden_state']).shape)
     results['best_val_loss'] += [best_val_loss]
@@ -2616,7 +2695,7 @@ class NeuralInferenceRunner_Meta4(object):
         SA_running_acc_rate = ((1 - upt_factor) * SA_running_acc_rate + y)
       return SA_running_factor, SA_running_acc_rate
 
-    def propose_new_sturucture_batch(data):
+    def propose_new_sturucture_batch(node_idx, node_idx_inv, edge_idx, edge_idx_inv):
       def propose_new_sturucture(node_idx, node_idx_inv):
         # change_node = (np.random.rand() > 0.5)
         change_node = True
@@ -2660,12 +2739,12 @@ class NeuralInferenceRunner_Meta4(object):
       new_edge_idx = []
       new_edge_idx_inv = []
 
-      for node_idx_batch, node_idx_inv_batch in zip(data['node_idx'], data['node_idx_inv']):
+      for node_idx_batch, node_idx_inv_batch in zip(node_idx, node_idx_inv):
         new_node_idx_batch, new_node_idx_inv_batch = propose_new_sturucture(node_idx_batch, node_idx_inv_batch)
         new_node_idx.append(new_node_idx_batch)
         new_node_idx_inv.append(new_node_idx_inv_batch)
 
-      for edge_idx_batch, edge_idx_inv_batch in zip(data['edge_idx'], data['edge_idx_inv']):
+      for edge_idx_batch, edge_idx_inv_batch in zip(edge_idx, edge_idx_inv):
         new_edge_idx_batch, new_edge_idx_inv_batch = propose_new_sturucture_edge(edge_idx_batch, edge_idx_inv_batch)
         new_edge_idx.append(new_edge_idx_batch)
         new_edge_idx_inv.append(new_edge_idx_inv_batch)
@@ -2701,7 +2780,7 @@ class NeuralInferenceRunner_Meta4(object):
     tik = time.time()
 
     # create data loader
-    test_loader, name_list = eval(self.dataset_conf.loader_name)(self.config, split='test', shuffle=False, edge_module=True)
+    test_loader, name_list = eval(self.dataset_conf.loader_name)(self.config, split='test', shuffle=False, edge_module=True, random_init=self.model_conf.random_init)
 
     # create models
     model = eval(self.model_conf.name)(self.config, test=True)
@@ -2732,7 +2811,18 @@ class NeuralInferenceRunner_Meta4(object):
 
     temp = np.exp(self.initial_temp)
 
-    for step in tqdm(range(500), desc="META TEST"):
+    node_idx_list = []
+    node_idx_inv_list = []
+    edge_idx_list = []
+    edge_idx_inv_list = []
+    for data in tqdm(test_loader):
+      node_idx_list.append(data['node_idx'])
+      node_idx_inv_list.append(data['node_idx_inv'])
+      edge_idx_list.append(data['edge_idx'])
+      edge_idx_inv_list.append(data['edge_idx_inv'])
+
+
+    for step in tqdm(range(self.config.test.optim_step), desc="META TEST"):
 
       if self.temp_update:
         acc_rate = np.exp(self.initial_acc - 5. * step / self.temp_slope_opt_steps)
@@ -2741,10 +2831,10 @@ class NeuralInferenceRunner_Meta4(object):
         else:
           temp = max(temp / self.temp_change, self.min_temp)
 
-      for data in tqdm(test_loader):
+      for idx_main, data in tqdm(enumerate(test_loader)):
         loss = 0
-        node_idx, node_idx_inv = node_idx_to_batch(data['node_idx'], data['node_idx_inv'])
-        edge_idx, edge_idx_inv = node_idx_to_batch(data['edge_idx'], data['edge_idx_inv'])
+        node_idx, node_idx_inv = node_idx_to_batch(node_idx_list[idx_main], node_idx_inv_list[idx_main])
+        edge_idx, edge_idx_inv = edge_idx_to_batch(edge_idx_list[idx_main], edge_idx_inv_list[idx_main])
 
         if "TorchGNN_MsgGNN" not in self.model_conf.name:
           data['idx_msg_edge'] = torch.tensor([0, 0]).contiguous().long()
@@ -2753,7 +2843,7 @@ class NeuralInferenceRunner_Meta4(object):
           log_prob, loss, loss_batch = model(data['edge_attr'], data['x'], data['edge_index'], data['idx_msg_edge'],
                                              target=data['y'], node_idx=node_idx, node_idx_inv=node_idx_inv, edge_idx=edge_idx, edge_idx_inv=edge_idx_inv)
 
-          new_node_idx, new_node_idx_inv, new_edge_idx, new_edge_idx_inv = propose_new_sturucture_batch(data)
+          new_node_idx, new_node_idx_inv, new_edge_idx, new_edge_idx_inv = propose_new_sturucture_batch(node_idx_list[idx_main], node_idx_inv_list[idx_main], edge_idx_list[idx_main], edge_idx_inv_list[idx_main])
           new_node_idx_, new_node_idx_inv_ = node_idx_to_batch(new_node_idx, new_node_idx_inv)
           new_edge_idx_, new_edge_idx_inv_ = edge_idx_to_batch(new_edge_idx, new_edge_idx_inv)
 
@@ -2788,36 +2878,43 @@ class NeuralInferenceRunner_Meta4(object):
               updated_edge_idx_inv.append(new_edge_idx_inv[idx])
               loss += new_loss
             else:
-              updated_node_idx.append(data['node_idx'][idx])
-              updated_node_idx_inv.append(data['node_idx_inv'][idx])
-              updated_node_idx.append(data['edge_idx'][idx])
-              updated_node_idx_inv.append(data['edge_idx_inv'][idx])
+              updated_node_idx.append(node_idx_list[idx_main][idx])
+              updated_node_idx_inv.append(node_idx_inv_list[idx_main][idx])
+              updated_edge_idx.append(edge_idx_list[idx_main][idx])
+              updated_edge_idx_inv.append(edge_idx_inv_list[idx_main][idx])
               loss += old_loss
 
-          data['node_idx'] = updated_node_idx
-          data['node_idx_inv'] = updated_node_idx_inv
-          data['edge_idx'] = updated_edge_idx
-          data['edge_idx_inv'] = updated_edge_idx_inv
+          # data['node_idx'] = updated_node_idx
+          # data['node_idx_inv'] = updated_node_idx_inv
+          # data['edge_idx'] = updated_edge_idx
+          # data['edge_idx_inv'] = updated_edge_idx_inv
+
+          node_idx_list[idx_main] = updated_node_idx
+          node_idx_inv_list[idx_main] = updated_node_idx_inv
+          edge_idx_list[idx_main] = updated_edge_idx
+          edge_idx_inv_list[idx_main] = updated_edge_idx_inv
 
         logger.info("Test Loss @ epoch {:04d} = {}".format(step + 1, loss))
 
     print("=======================================")
     print("TEST")
     print("=======================================")
-    for data in tqdm(test_loader):
+    for idx, data in tqdm(enumerate(test_loader)):
       if "TorchGNN_MsgGNN" not in self.model_conf.name:
         data['idx_msg_edge'] = torch.tensor([0, 0]).contiguous().long()
 
       with torch.no_grad():
-        node_idx, node_idx_inv = node_idx_to_batch(data['node_idx'], data['node_idx_inv'])
+        node_idx, node_idx_inv = node_idx_to_batch(node_idx_list[idx],node_idx_inv_list[idx])
+        edge_idx, edge_idx_inv = node_idx_to_batch(node_idx_list[idx], node_idx_inv_list[idx])
+
         log_prob, loss, loss_batch = model(data['edge_attr'], data['x'], data['edge_index'], data['idx_msg_edge'],
                                            target=data['y'],
-                                           node_idx=node_idx, node_idx_inv=node_idx_inv)
+                                           node_idx=node_idx, node_idx_inv=node_idx_inv, edge_idx=edge_idx, edge_idx_inv=edge_idx_inv)
 
         pred_pts += [torch.exp(log_prob).data.cpu().numpy()]
         gt_pts += [data['y'].data.cpu().numpy()]
-        structure_info.append(data['node_idx_inv'])
-        structure_info_edge.append(data['edge_idx_inv'])
+        structure_info.append(node_idx_inv_list[idx])
+        structure_info_edge.append(edge_idx_inv_list[idx])
 
 
     pred_pts = np.concatenate(pred_pts, axis=0)

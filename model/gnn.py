@@ -14,7 +14,7 @@ from torch_geometric.utils import remove_self_loops, add_self_loops, softmax
 
 EPS = float(np.finfo(np.float32).eps)
 
-__all__ = ['TorchGNN', 'TorchGNN_meta', 'TorchGNN_multitask', 'TorchGNN_MsgGNN', 'TorchGNN_MsgGNN_parallel']
+__all__ = ['TorchGNN', 'TorchGNN_meta', 'TorchGNN_meta_edge', 'TorchGNN_multitask', 'TorchGNN_MsgGNN', 'TorchGNN_MsgGNN_parallel']
 
 class TorchGNN(nn.Module):
   def __init__(self, config, test=False):
@@ -199,7 +199,7 @@ class TorchGNN_meta(nn.Module):
     self.skip_connection = config.model.skip_connection
     self.interpol = config.model.interpol
     self.master_node = config.model.master_node if config.model.master_node is not None else False
-    self.batch_size = 1 if test else config.train.batch_size
+    self.batch_size = config.test.batch_size if test else config.train.batch_size
     self.masking = config.model.masking if config.model.masking is not None else False
     self.SSL = config.model.SSL if config.model.SSL is not None else False
     self.train_pretext = config.model.train_pretext if config.model.train_pretext is not None else False
@@ -246,7 +246,7 @@ class TorchGNN_meta(nn.Module):
           m.bias.data.zero_()
 
   # def forward(self, J_msg, b, msg_node, degree, idx_msg_edge, target=None):
-  def forward(self, J_msg, b, msg_node, idx_msg_edge, target=None, node_idx=None, node_idx_inv=None):
+  def forward(self, J_msg, b, msg_node, idx_msg_edge, target=None, node_idx=None, node_idx_inv=None, edge_idx=None, edge_idx_inv=None):
     """
       A: shape |V| X |V|
       J: shape |V| X |V|
@@ -263,10 +263,123 @@ class TorchGNN_meta(nn.Module):
     for tt in range(self.num_prop):
       if self.aggregate_type == 'att':
         # state = self.GeoLayer(state, msg_node.T, J_msg, b, degree, idx_msg_edge.T)
-        state = self.GeoLayer(state, msg_node.T, J_msg, b, idx_msg_edge.T, node_idx=node_idx, node_idx_inv=node_idx_inv)
+        state = self.GeoLayer(state, msg_node.T, J_msg, b, idx_msg_edge.T, node_idx=node_idx, node_idx_inv=node_idx_inv, edge_idx=edge_idx, edge_idx_inv=edge_idx_inv)
       else:
         # state = self.GeoLayer(msg_node.T, J_msg, b, state, degree, idx_msg_edge.T)
-        state = self.GeoLayer(msg_node.T, J_msg, b, state, idx_msg_edge.T, node_idx, node_idx_inv)
+        state = self.GeoLayer(msg_node.T, J_msg, b, state, idx_msg_edge.T, node_idx=node_idx, node_idx_inv=node_idx_inv, edge_idx=edge_idx, edge_idx_inv=edge_idx_inv)
+
+      if self.jumping:
+        hidden_state.append(state)
+
+
+    y = self.output_func(torch.cat([state, b, -b], dim=1)) #READOUT
+    y = torch.log_softmax(y, dim=1)
+
+    if target is not None:
+      if self.config.model.loss == 'KL-pq':
+        # criterion(logQ, P) = KL(P||Q)
+        loss = self.loss_func(y, target)
+      elif self.config.model.loss == 'KL-qp':
+        # criterion(logP, Q) = KL(Q||P)
+        loss = self.loss_func(torch.log(target + EPS), torch.exp(y))
+      elif self.config.model.loss == 'MSE':
+        if self.SSL:
+          if self.train_pretext:
+            loss = self.loss_func(y, target)
+        else:
+          loss = self.loss_func(y, torch.log(target))
+      else:
+        raise ValueError("Non-supported loss function!")
+    else:
+      loss = None
+
+    y_, target_ = y.view(self.batch_size, -1, 2), target.view(self.batch_size, -1, 2)
+    loss_per_batch = [self.loss_func(_, __) for _, __ in zip(y_, target_)]
+    return y, loss, loss_per_batch
+
+class TorchGNN_meta_edge(nn.Module):
+  def __init__(self, config, test=False):
+    """ A simplified implementation of NodeGNN """
+    super(TorchGNN_meta_edge, self).__init__()
+    self.config = config
+    self.drop_prob = config.model.drop_prob
+    self.num_node = config.dataset.num_node
+    self.hidden_dim = config.model.hidden_dim
+    self.num_prop = config.model.num_prop
+    self.aggregate_type = config.model.aggregate_type
+    self.degree_emb = config.model.degree_emb
+    self.jumping = config.model.jumping
+    self.skip_connection = config.model.skip_connection
+    self.interpol = config.model.interpol
+    self.master_node = config.model.master_node if config.model.master_node is not None else False
+    self.batch_size = config.test.batch_size if test else config.train.batch_size
+    self.masking = config.model.masking if config.model.masking is not None else False
+    self.SSL = config.model.SSL if config.model.SSL is not None else False
+    self.train_pretext = config.model.train_pretext if config.model.train_pretext is not None else False
+    assert self.aggregate_type in ['att', 'mean', 'add'], 'not implemented'
+
+    #PROPAGATION LAYER
+    if self.aggregate_type == 'att':
+      print("Using attention")
+      self.GeoLayer = MYGATConv_meta_edge(self.hidden_dim, self.hidden_dim, self.hidden_dim, self.degree_emb, self.skip_connection, self.interpol)
+    else:
+      self.GeoLayer = GeoLayer_meta(self.hidden_dim, self.degree_emb, self.aggregate_type, self.skip_connection, self.interpol)
+
+    #OUTPUT FUNCTION
+    self.output_func = nn.Sequential(*[
+      nn.Linear(self.hidden_dim + 2, 64),
+      nn.ReLU(),
+      nn.Linear(64, 64),
+      nn.ReLU(),
+      nn.Linear(64, 2),
+    ])
+
+    if self.config.model.loss == 'KL-pq' or self.config.model.loss == 'KL-qp':
+      self.loss_func = nn.KLDivLoss(reduction='batchmean')
+    else:
+      self.loss_func = nn.MSELoss(reduction='mean')
+
+    self._init_param()
+
+  def _init_param(self):
+    mlp_modules = [
+      xx for xx in [self.output_func] if xx is not None
+    ]
+
+    for m in mlp_modules:
+      if isinstance(m, nn.Sequential):
+        for mm in m:
+          if isinstance(mm, nn.Linear):
+            nn.init.xavier_uniform_(mm.weight.data)
+            if mm.bias is not None:
+              mm.bias.data.zero_()
+      elif isinstance(m, nn.Linear):
+        nn.init.xavier_uniform_(m.weight.data)
+        if m.bias is not None:
+          m.bias.data.zero_()
+
+  # def forward(self, J_msg, b, msg_node, degree, idx_msg_edge, target=None):
+  def forward(self, J_msg, b, msg_node, idx_msg_edge, target=None, node_idx=None, node_idx_inv=None, edge_idx=None, edge_idx_inv=None):
+    """
+      A: shape |V| X |V|
+      J: shape |V| X |V|
+      b: shape |V| X 1
+      msg_node: shape |E| X 2
+      msg_edge: shape |E| X |E|
+      target: shape |V| X 2
+    """
+    num_node = b.shape[0]
+    state = torch.zeros(num_node, self.hidden_dim).to(b.device)
+
+    # propagation
+    hidden_state = []
+    for tt in range(self.num_prop):
+      if self.aggregate_type == 'att':
+        # state = self.GeoLayer(state, msg_node.T, J_msg, b, degree, idx_msg_edge.T)
+        state = self.GeoLayer(state, msg_node.T, J_msg, b, idx_msg_edge.T, node_idx=node_idx, node_idx_inv=node_idx_inv, edge_idx=edge_idx, edge_idx_inv=edge_idx_inv)
+      else:
+        # state = self.GeoLayer(msg_node.T, J_msg, b, state, degree, idx_msg_edge.T)
+        state = self.GeoLayer(msg_node.T, J_msg, b, state, idx_msg_edge.T, node_idx=node_idx, node_idx_inv=node_idx_inv, edge_idx=edge_idx, edge_idx_inv=edge_idx_inv)
 
       if self.jumping:
         hidden_state.append(state)
@@ -567,7 +680,7 @@ class GeoLayer_meta(MessagePassing):
           m.bias.data.zero_()
 
   # def forward(self, msg_node, J_msg, b, state_prev, degree, idx_msg_edge):
-  def forward(self, msg_node, J_msg, b, state_prev, idx_msg_edge, node_idx, node_idx_inv):
+  def forward(self, msg_node, J_msg, b, state_prev, idx_msg_edge, node_idx=None, node_idx_inv=None, edge_idx=None, edge_idx_inv=None):
     edge_in = msg_node[:, 0]
     edge_out = msg_node[:, 1].contiguous()
 
@@ -578,11 +691,23 @@ class GeoLayer_meta(MessagePassing):
     state_out = state_prev[edge_out, :]  # shape |E| X D
     return self.propagate(edge_index = msg_node.t(), state_prev=state_prev, J_msg=J_msg, state_in=state_in,
                           state_out=state_out,
-                          ff_in=ff_in, ff_out=ff_out, node_idx=node_idx, node_idx_inv=node_idx_inv)
+                          ff_in=ff_in, ff_out=ff_out, node_idx=node_idx, node_idx_inv=node_idx_inv, edge_idx=edge_idx, edge_idx_inv=edge_idx_inv)
 
   # def message(self, state_in, state_out, node_degree, ff_in, ff_out):
-  def message(self, state_in, state_out, ff_in, ff_out, node_idx, node_idx_inv):
+  def message(self, state_in, state_out, ff_in, ff_out, node_idx=None, node_idx_inv=None, edge_idx=None, edge_idx_inv=None):
     out = self.msg_func(torch.cat([state_in, ff_in, state_out, ff_out], dim=1))
+
+    # out = torch.zeros(state_in.size(0), self.hidden_dim).cuda()
+    # for i in range(len(edge_idx)):
+    #   if len(edge_idx[i]) == 0: continue
+    #   input = torch.cat(
+    #     [state_in[edge_idx[i], :], ff_in[edge_idx[i], :], state_out[edge_idx[i], :], ff_out[edge_idx[i], :]], dim=1)
+    #   if i == 0:
+    #     aux = self.msg_func1(input)
+    #   else:
+    #     aux = self.msg_func2(input)
+    #   out[edge_idx[i], :] = aux
+
     return out
 
   def update(self, msg_agg, state_prev, node_idx, node_idx_inv):
@@ -816,7 +941,7 @@ class MYGATConv_meta(GATConv):
 
   # def forward(self, x: Union[Tensor, OptPairTensor], edge_index: Adj, J_msg, b, degree, idx_msg_edge, size: Size = None, return_attention_weights=None):
   def forward(self, x: Union[Tensor, OptPairTensor], edge_index: Adj, J_msg, b, idx_msg_edge,
-                size: Size = None, return_attention_weights=None, node_idx=None, node_idx_inv=None):
+                size: Size = None, return_attention_weights=None, node_idx=None, node_idx_inv=None, edge_idx=None, edge_idx_inv=None):
     edge_in = edge_index[:, 0]
     edge_out = edge_index[:, 1].contiguous()
 
@@ -862,7 +987,7 @@ class MYGATConv_meta(GATConv):
         edge_index = set_diag(edge_index)
     # propagate_type: (x: OptPairTensor, alpha: OptPairTensor)
     out = self.propagate(edge_index.t(), x=(x_l, x_r),
-                         alpha=(alpha_l, alpha_r), size=size, state_in=state_in, ff_in=ff_in, state_out=state_out, ff_out=ff_out, state_prev = x, node_idx=node_idx, node_idx_inv=node_idx_inv)
+                         alpha=(alpha_l, alpha_r), size=size, state_in=state_in, ff_in=ff_in, state_out=state_out, ff_out=ff_out, state_prev = x, node_idx=node_idx, node_idx_inv=node_idx_inv, edge_idx=edge_idx, edge_idx_inv=edge_idx_inv)
 
 
     alpha = self._alpha
@@ -887,14 +1012,186 @@ class MYGATConv_meta(GATConv):
 
   def message(self, x_j: Tensor, alpha_j: Tensor, alpha_i: OptTensor,
               index: Tensor, ptr: OptTensor,
-              size_i: Optional[int], state_in, ff_in, state_out, ff_out)-> Tensor: #, node_degree) -> Tensor:
+              size_i: Optional[int], state_in, ff_in, state_out, ff_out, edge_idx, edge_idx_inv)-> Tensor: #, node_degree) -> Tensor:
     alpha = alpha_j if alpha_i is None else alpha_j + alpha_i
     alpha = F.leaky_relu(alpha, self.negative_slope)
     alpha = softmax(alpha, index, ptr, size_i)
     self._alpha = alpha
     alpha = F.dropout(alpha, p=self.dropout, training=self.training)
     x_j = self.msg_func(torch.cat([state_in, ff_in, state_out, ff_out], dim=1))
+
+    # out = torch.zeros(state_in.size(0), self.hidden_dim).cuda()
+    # for i in range(len(edge_idx)):
+    #   if len(edge_idx[i]) == 0: continue
+    #   input = torch.cat([state_in[edge_idx[i], :], ff_in[edge_idx[i], :], state_out[edge_idx[i], :], ff_out[edge_idx[i], :]], dim=1)
+    #   if i==0:
+    #     aux = self.msg_func1(input)
+    #   else:
+    #     aux = self.msg_func2(input)
+    #   out[edge_idx[i], :] = aux
+    # return out * alpha
     return x_j * alpha
+
+  def update(self, msg_agg, state_prev, node_idx, node_idx_inv):
+    out = torch.zeros(msg_agg.size(0), self.hidden_dim).cuda()
+    for i in range(len(node_idx)):
+      if len(node_idx[i]) == 0: continue
+      msg = msg_agg[node_idx[i], :]
+      state = state_prev[node_idx[i], :]
+      # Updates node's value; no worries about updating too early since each node only affects itself.
+      if i == 0:
+        aux = self.update_func1(msg, state)
+      else:
+        aux = self.update_func2(msg, state)
+      out[node_idx[i], :] = aux
+    return out
+
+class MYGATConv_meta_edge(GATConv):
+  def __init__(self, in_channels, out_channels, hidden_dim, degree_emb, skip_connection, interpol):
+    super(MYGATConv_meta_edge, self).__init__(in_channels=in_channels, out_channels=out_channels, add_self_loops=False)
+    self.hidden_dim = hidden_dim
+    self.degree_emb = degree_emb
+    self.skip_connection = skip_connection
+    self.interpol = interpol
+
+    # message function
+    self.msg_func1 = nn.Sequential(*[
+      nn.Linear(2 * self.hidden_dim + 8, 64),
+      nn.ReLU(),
+      nn.Linear(64, 64),
+      nn.ReLU(),
+      nn.Linear(64, self.hidden_dim)
+    ])
+
+    self.msg_func2 = nn.Sequential(*[
+      nn.Linear(2 * self.hidden_dim + 8, 64),
+      nn.ReLU(),
+      nn.Linear(64, 64),
+      nn.ReLU(),
+      nn.Linear(64, self.hidden_dim)
+    ])
+
+    # update function
+    self.update_func1 = nn.GRUCell(
+      input_size=self.hidden_dim, hidden_size=self.hidden_dim)
+
+    self.update_func2 = nn.GRUCell(
+      input_size=self.hidden_dim, hidden_size=self.hidden_dim)
+
+    self.gating = nn.Sequential(*[
+      nn.Linear(self.hidden_dim, 1),
+      nn.Sigmoid()
+    ])
+
+    self._init_param()
+
+  def _init_param(self):
+    mlp_modules = [
+      xx for xx in [self.msg_func1, self.msg_func2, self.update_func1, self.update_func2, self.gating] if xx is not None
+    ]
+
+    for m in mlp_modules:
+      if isinstance(m, nn.Sequential):
+        for mm in m:
+          if isinstance(mm, nn.Linear):
+            nn.init.xavier_uniform_(mm.weight.data)
+            if mm.bias is not None:
+              mm.bias.data.zero_()
+      elif isinstance(m, nn.Linear):
+        nn.init.xavier_uniform_(m.weight.data)
+        if m.bias is not None:
+          m.bias.data.zero_()
+
+  # def forward(self, x: Union[Tensor, OptPairTensor], edge_index: Adj, J_msg, b, degree, idx_msg_edge, size: Size = None, return_attention_weights=None):
+  def forward(self, x: Union[Tensor, OptPairTensor], edge_index: Adj, J_msg, b, idx_msg_edge,
+                size: Size = None, return_attention_weights=None, node_idx=None, node_idx_inv=None, edge_idx=None, edge_idx_inv=None):
+    edge_in = edge_index[:, 0]
+    edge_out = edge_index[:, 1].contiguous()
+
+    ff_in = torch.cat([b[edge_in], -b[edge_in], J_msg, -J_msg], dim=1).float()
+    ff_out = torch.cat([-b[edge_out], b[edge_out], -J_msg, J_msg], dim=1).float()
+
+    state_in = x[edge_in, :]  # shape |E| X D
+    state_out = x[edge_out, :]  # shape |E| X D
+
+    H, C = self.heads, self.out_channels
+
+    x_l: OptTensor = None
+    x_r: OptTensor = None
+    alpha_l: OptTensor = None
+    alpha_r: OptTensor = None
+    if isinstance(x, Tensor):
+      assert x.dim() == 2, 'Static graphs not supported in `GATConv`.'
+      x_l = x_r = self.lin_l(x).view(-1, H, C)
+      alpha_l = (x_l * self.att_l).sum(dim=-1)
+      alpha_r = (x_r * self.att_r).sum(dim=-1)
+    else:
+      x_l, x_r = x[0], x[1]
+      assert x[0].dim() == 2, 'Static graphs not supported in `GATConv`.'
+      x_l = self.lin_l(x_l).view(-1, H, C)
+      alpha_l = (x_l * self.att_l).sum(dim=-1)
+      if x_r is not None:
+        x_r = self.lin_r(x_r).view(-1, H, C)
+        alpha_r = (x_r * self.att_r).sum(dim=-1)
+
+    assert x_l is not None
+    assert alpha_l is not None
+
+    if self.add_self_loops:
+      if isinstance(edge_index, Tensor):
+        num_nodes = x_l.size(0)
+        if x_r is not None:
+          num_nodes = min(num_nodes, x_r.size(0))
+        if size is not None:
+          num_nodes = min(size[0], size[1])
+        edge_index, _ = remove_self_loops(edge_index)
+        edge_index, _ = add_self_loops(edge_index, num_nodes=num_nodes)
+      elif isinstance(edge_index, SparseTensor):
+        edge_index = set_diag(edge_index)
+    # propagate_type: (x: OptPairTensor, alpha: OptPairTensor)
+    out = self.propagate(edge_index.t(), x=(x_l, x_r),
+                         alpha=(alpha_l, alpha_r), size=size, state_in=state_in, ff_in=ff_in, state_out=state_out, ff_out=ff_out, state_prev = x, node_idx=node_idx, node_idx_inv=node_idx_inv, edge_idx=edge_idx, edge_idx_inv=edge_idx_inv)
+
+
+    alpha = self._alpha
+    self._alpha = None
+
+    if self.concat:
+      out = out.view(-1, self.heads * self.out_channels)
+    else:
+      out = out.mean(dim=1)
+
+    if self.bias is not None:
+      out += self.bias
+
+    if isinstance(return_attention_weights, bool):
+      assert alpha is not None
+      if isinstance(edge_index, Tensor):
+        return out, (edge_index, alpha)
+      elif isinstance(edge_index, SparseTensor):
+        return out, edge_index.set_value(alpha, layout='coo')
+    else:
+      return out
+
+  def message(self, x_j: Tensor, alpha_j: Tensor, alpha_i: OptTensor,
+              index: Tensor, ptr: OptTensor,
+              size_i: Optional[int], state_in, ff_in, state_out, ff_out, edge_idx, edge_idx_inv)-> Tensor: #, node_degree) -> Tensor:
+    alpha = alpha_j if alpha_i is None else alpha_j + alpha_i
+    alpha = F.leaky_relu(alpha, self.negative_slope)
+    alpha = softmax(alpha, index, ptr, size_i)
+    self._alpha = alpha
+    alpha = F.dropout(alpha, p=self.dropout, training=self.training)
+
+    out = torch.zeros(state_in.size(0), self.hidden_dim).cuda()
+    for i in range(len(edge_idx)):
+      if len(edge_idx[i]) == 0: continue
+      input = torch.cat([state_in[edge_idx[i], :], ff_in[edge_idx[i], :], state_out[edge_idx[i], :], ff_out[edge_idx[i], :]], dim=1)
+      if i==0:
+        aux = self.msg_func1(input)
+      else:
+        aux = self.msg_func2(input)
+      out[edge_idx[i], :] = aux
+    return out * alpha
 
   def update(self, msg_agg, state_prev, node_idx, node_idx_inv):
     out = torch.zeros(msg_agg.size(0), self.hidden_dim).cuda()

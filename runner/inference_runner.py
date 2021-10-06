@@ -2113,7 +2113,8 @@ class NeuralInferenceRunner_Meta3(object):
 
           updated_node_idx = []
           updated_node_idx_inv = []
-          for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch,
+
+          for idx, old_loss, new_loss in zip([_ for _ in range(self.config.test.batch_size)], loss_batch,
                                              new_loss_batch):
 
             if self.temp_update:
@@ -2179,7 +2180,7 @@ class NeuralInferenceRunner_Meta3(object):
 
     file_name = os.path.join(self.config.save_dir, "sturucture_info.p")
     with open(file_name, 'wb') as f:
-      pickle.dump(structure_info, f)
+      pickle.dump(node_idx_inv_list, f)
 
     file_name = os.path.join(self.config.save_dir, "state_hist.p")
     with open(file_name, 'wb') as f:
@@ -2401,7 +2402,6 @@ class NeuralInferenceRunner_Meta4(object):
 
       edge_idx_inv_list1.append(data1['edge_idx_inv'])
       edge_idx_inv_list2.append(data2['edge_idx_inv'])
-
 
     for epoch in range(self.train_conf.max_epoch):
       if self.temp_update:
@@ -2856,7 +2856,7 @@ class NeuralInferenceRunner_Meta4(object):
           updated_node_idx_inv = []
           updated_edge_idx = []
           updated_edge_idx_inv = []
-          for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch,
+          for idx, old_loss, new_loss in zip([_ for _ in range(self.config.test.batch_size)], loss_batch,
                                              new_loss_batch):
 
             if self.temp_update:
@@ -2935,11 +2935,11 @@ class NeuralInferenceRunner_Meta4(object):
 
     file_name = os.path.join(self.config.save_dir, "sturucture_info.p")
     with open(file_name, 'wb') as f:
-      pickle.dump(structure_info, f)
+      pickle.dump(node_idx_inv_list, f)
 
     file_name = os.path.join(self.config.save_dir, "sturucture_info_edge.p")
     with open(file_name, 'wb') as f:
-      pickle.dump(structure_info_edge, f)
+      pickle.dump(edge_idx_inv_list, f)
 
     file_name = os.path.join(self.config.save_dir, "state_hist.p")
     with open(file_name, 'wb') as f:

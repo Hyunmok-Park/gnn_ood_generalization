@@ -293,7 +293,7 @@ class TorchGNN_meta(nn.Module):
     else:
       loss = None
 
-    y_, target_ = y.view(self.batch_size, -1, 2), target.view(self.batch_size, -1, 2)
+    y_, target_ = y.view(-1, self.num_node, 2), target.view(-1, self.num_node, 2)
     loss_per_batch = [self.loss_func(_, __) for _, __ in zip(y_, target_)]
     return y, loss, loss_per_batch
 
@@ -406,7 +406,7 @@ class TorchGNN_meta_edge(nn.Module):
     else:
       loss = None
 
-    y_, target_ = y.view(self.batch_size, -1, 2), target.view(self.batch_size, -1, 2)
+    y_, target_ = y.view(-1, self.num_node, 2), target.view(-1, self.num_node, 2)
     loss_per_batch = [self.loss_func(_, __) for _, __ in zip(y_, target_)]
     return y, loss, loss_per_batch
 

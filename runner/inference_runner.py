@@ -1862,7 +1862,7 @@ class NeuralInferenceRunner_Meta3(object):
 
           updated_node_idx1 = []
           updated_node_idx_inv1 = []
-          for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch1,
+          for idx, old_loss, new_loss in zip([_ for _ in range(len(loss_batch1))], loss_batch1,
                                              new_loss_batch1):
             if self.temp_update:
               prob_accept = np.exp((old_loss.data.cpu().numpy() - new_loss.data.cpu().numpy()) / temp)
@@ -1884,7 +1884,7 @@ class NeuralInferenceRunner_Meta3(object):
 
           updated_node_idx2 = []
           updated_node_idx_inv2 = []
-          for idx, old_loss, new_loss in zip([_ for _ in range(self.train_conf.batch_size)], loss_batch2,
+          for idx, old_loss, new_loss in zip([_ for _ in range(len(loss_batch2))], loss_batch2,
                                              new_loss_batch2):
 
             if self.temp_update:
@@ -2061,6 +2061,8 @@ class NeuralInferenceRunner_Meta3(object):
     gt_pts = []
     state_hist = []
     structure_info = []
+    node_module_hist = []
+    loss_list = []
 
     temp = np.exp(self.initial_temp)
 
@@ -2078,6 +2080,9 @@ class NeuralInferenceRunner_Meta3(object):
         else:
           temp = max(temp / self.temp_change, self.min_temp)
 
+      _ = copy.deepcopy(node_idx_inv_list)
+      node_module_hist.append(_)
+
       for idx_main, data in tqdm(enumerate(test_loader)):
         loss = 0
         # node_idx, node_idx_inv = node_idx_to_batch(data['node_idx'], data['node_idx_inv'])
@@ -2093,6 +2098,8 @@ class NeuralInferenceRunner_Meta3(object):
 
           new_node_idx, new_node_idx_inv = propose_new_sturucture_batch(node_idx_list[idx_main], node_idx_inv_list[idx_main])
           new_node_idx_, new_node_idx_inv_ = node_idx_to_batch(new_node_idx, new_node_idx_inv)
+
+
 
           # old_node_idx, old_node_idx_inv = copy.deepcopy(data['node_idx']), copy.deepcopy(data['node_idx_inv'])
           # new_node_idx, new_node_idx_inv = propose_new_sturucture(data)
@@ -2114,7 +2121,7 @@ class NeuralInferenceRunner_Meta3(object):
           updated_node_idx = []
           updated_node_idx_inv = []
 
-          for idx, old_loss, new_loss in zip([_ for _ in range(self.config.test.batch_size)], loss_batch,
+          for idx, old_loss, new_loss in zip([_ for _ in range(len(loss_batch))], loss_batch,
                                              new_loss_batch):
 
             if self.temp_update:
@@ -2138,11 +2145,12 @@ class NeuralInferenceRunner_Meta3(object):
               updated_node_idx_inv.append(node_idx_inv_list[idx_main][idx])
               loss += old_loss
 
+
           # data['node_idx'] = updated_node_idx
           # data['node_idx_inv'] = updated_node_idx_inv
           node_idx_list[idx_main] = updated_node_idx
           node_idx_inv_list[idx_main] = updated_node_idx_inv
-
+        loss_list.append(loss.data.cpu().numpy())
         logger.info("Test Loss @ epoch {:04d} = {}".format(step + 1, loss))
 
     print("=======================================")
@@ -2166,7 +2174,7 @@ class NeuralInferenceRunner_Meta3(object):
     gt_pts = np.concatenate(gt_pts, axis=0)
     name_list = np.array(name_list)
     state_hist = np.array(state_hist)
-    # structure_info = np.array(structure_info)
+    structure_info = np.array(structure_info)
     np.savetxt(self.config.save_dir + '/pred_pts_' + self.dataset_conf.split + '.csv', pred_pts, delimiter='\t')
     np.savetxt(self.config.save_dir + '/gt_pts_' + self.dataset_conf.split + '.csv', gt_pts, delimiter='\t')
     file_name = os.path.join(self.config.save_dir, "name.p")
@@ -2185,6 +2193,10 @@ class NeuralInferenceRunner_Meta3(object):
     file_name = os.path.join(self.config.save_dir, "state_hist.p")
     with open(file_name, 'wb') as f:
       pickle.dump(state_hist, f)
+
+    file_name = os.path.join(self.config.save_dir, "node_module_hist.p")
+    with open(file_name, 'wb') as f:
+      pickle.dump(node_module_hist, f)
 
     return test_loss
 
@@ -2806,6 +2818,8 @@ class NeuralInferenceRunner_Meta4(object):
     pred_pts = []
     gt_pts = []
     state_hist = []
+    node_module_hist = []
+    edge_module_hist = []
     structure_info = []
     structure_info_edge = []
 
@@ -2823,6 +2837,11 @@ class NeuralInferenceRunner_Meta4(object):
 
 
     for step in tqdm(range(self.config.test.optim_step), desc="META TEST"):
+
+      _ = copy.deepcopy(node_idx_inv_list)
+      node_module_hist.append(_)
+      _ = copy.deepcopy(edge_idx_inv_list)
+      edge_module_hist.append(_)
 
       if self.temp_update:
         acc_rate = np.exp(self.initial_acc - 5. * step / self.temp_slope_opt_steps)
@@ -2856,7 +2875,7 @@ class NeuralInferenceRunner_Meta4(object):
           updated_node_idx_inv = []
           updated_edge_idx = []
           updated_edge_idx_inv = []
-          for idx, old_loss, new_loss in zip([_ for _ in range(self.config.test.batch_size)], loss_batch,
+          for idx, old_loss, new_loss in zip([_ for _ in range(len(loss_batch))], loss_batch,
                                              new_loss_batch):
 
             if self.temp_update:
@@ -2944,6 +2963,14 @@ class NeuralInferenceRunner_Meta4(object):
     file_name = os.path.join(self.config.save_dir, "state_hist.p")
     with open(file_name, 'wb') as f:
       pickle.dump(state_hist, f)
+
+    file_name = os.path.join(self.config.save_dir, "node_module_hist.p")
+    with open(file_name, 'wb') as f:
+      pickle.dump(node_module_hist, f)
+
+    file_name = os.path.join(self.config.save_dir, "edge_module_hist.p")
+    with open(file_name, 'wb') as f:
+      pickle.dump(edge_module_hist, f)
 
     return test_loss
 
